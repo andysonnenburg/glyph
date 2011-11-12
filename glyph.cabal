@@ -1,0 +1,26 @@
+name: glyph
+build-type: Simple
+version: 0.1
+cabal-version: >= 1.2
+
+executable glyph
+  main-is: Main.hs
+  other-modules:
+    Language.Glyph.Internal.Lex
+    Language.Glyph.Internal.Parse
+  hs-source-dirs: src
+  build-depends:
+    base == 4.*,
+    array,
+    containers,
+    bytestring,
+    text,
+    mtl,
+    semigroups,
+    semigroupoids,
+    syb,
+    template-haskell,
+    comonad,
+    cmdargs
+  build-tools: alex, happy
+  ghc-options: -O2 -Wall

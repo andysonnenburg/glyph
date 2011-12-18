@@ -296,23 +296,3 @@ mono = Forall mempty
 
 poly :: [Type.Var] -> Type -> TypeScheme
 poly = Forall
-
-everywhereButM' :: Monad m => (forall a. Data a => a -> m (a, Bool)) -> GenericM m
-everywhereButM' f x = do
-  (x', stop) <- f x
-  if stop
-    then return x'
-    else gmapM (everywhereButM' f) x'
-
-mkM' :: (Monad m, Typeable a, Typeable b) => (b -> m (b, Bool)) -> a -> m (a, Bool)
-mkM' = extM' f
-  where
-    f x = return (x, False)
-
-extM' ::  ( Monad m
-         , Typeable a
-         , Typeable b
-         ) => (a -> m (a, Bool)) -> (b -> m (b, Bool)) -> a -> m (a, Bool)
-extM' def ext = unM ((M def) `ext0` (M ext))
-
-newtype M m x = M { unM :: x -> m (x, Bool) }

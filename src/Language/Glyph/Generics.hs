@@ -4,6 +4,10 @@ module Language.Glyph.Generics
        , everythingButFuns
        , everythingThisScope
        , everywhereThisScopeM
+       , everywhereButM'
+       , mkM'
+       , extM'
+       , ext1M'
        ) where
 
 import Data.Generics

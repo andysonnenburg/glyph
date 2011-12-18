@@ -43,7 +43,7 @@ stmtsToExp ((view -> v):xs) =
       let e = maybe undefined' exprToExp expr
       in appE (absE
                (varP x)
-               (return' (varE x `asTypeOf'` e) `then'`stmtsToExp xs)) e
+               (return' (varE x `asTypeOf'` e) `then'` stmtsToExp xs)) e
     FunDeclS (ident -> f) (map ident -> x) stmts ->
       letE
       [f]

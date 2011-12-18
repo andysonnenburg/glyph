@@ -1,14 +1,14 @@
 {-# LANGUAGE
     DeriveDataTypeable
   , FlexibleContexts
-  , PatternGuards #-}
+  , PatternGuards
+  , ScopedTypeVariables
+  , ViewPatterns #-}
 module Language.Glyph.CheckFun
        ( CheckFunException (..)
        , checkFun
        ) where
 
-import Control.Applicative
-import Control.Comonad
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
@@ -20,20 +20,32 @@ import qualified Data.Text as Text
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Location
 import Language.Glyph.Message
-import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
 import Language.Glyph.Syntax
 
-checkFun :: ( HasSort a
-            , MonadReader [Located (Stmt Ident)] m
-            , MonadWriter Message m
-            ) => IdentMap a -> m (IdentMap a)
-checkFun symtab = do
-  ask >>= checkFunQ symtab
-  return symtab
+checkFun :: forall a b m.
+           ( Data a
+           , HasLocation a
+           , HasSort b
+           , MonadWriter Message m
+           ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap b)
+checkFun (stmts, symtab) = do
+  checkFun' stmts
+  return (stmts, symtab)
+  where
+    checkFun' = everything (>>) (return () `mkQ` queryExpr)
+    
+    queryExpr :: Expr a -> m ()
+    queryExpr x@(view -> AssignE name _)
+      | Fun <- sort (symtab!ident name) =
+        runReaderT' $ tellError $ AssignmentToFunDecl (view name)
+      where
+        runReaderT' m = runReaderT m (location x)
+    queryExpr _ =
+      return ()
 
 data CheckFunException
-  = AssignmentToFunDecl (Located Name)
+  = AssignmentToFunDecl NameView
   | StrMsgError String
   | NoMsgError deriving Typeable
 
@@ -41,8 +53,7 @@ instance Show CheckFunException where
   show x =
     case x of
       AssignmentToFunDecl a ->
-        show (location a) ++ ": illegal assignment to fun `" ++
-        Text.unpack (extract a) ++ "'"
+        "illegal assignment to fun `" ++ Text.unpack a ++ "'"
       StrMsgError s -> s
       NoMsgError -> "internal error"
 
@@ -52,12 +63,3 @@ instance Error CheckFunException where
   strMsg = StrMsgError
   noMsg = NoMsgError
 
-checkFunQ :: (HasSort a, Data b, MonadWriter Message m) => IdentMap a -> b -> m ()
-checkFunQ symtab = everything (>>) (return () `mkQ` q)
-  where
-    q (AssignE x _) | Fun <- sort (symtab!ident x) =
-      tell $ Error $ AssignmentToFunDecl (name <$> x)
-    q _ =
-      return ()
-    
-    ident = extract . extract

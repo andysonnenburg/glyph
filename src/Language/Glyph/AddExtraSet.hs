@@ -19,20 +19,20 @@ import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.IdentSet
 import qualified Language.Glyph.IdentSet as IdentSet
 
-addExtraSet :: ( HasSort a
-              , HasFreeVars a
-              , HasCallSet a
+addExtraSet :: ( HasSort b
+              , HasFreeVars b
+              , HasCallSet b
               , Monad m
-              ) => IdentMap a -> m (IdentMap (With a ExtraSet))
-addExtraSet symtab =
-  return $
-  IdentMap.intersectionWith withExtraSet symtab extraSets <>
-  ((`withExtraSet` mempty) <$> symtab)
+              ) => (a, IdentMap b) -> m (a, IdentMap (Annotated ExtraSet b))
+addExtraSet (stmts, symtab) =
+  return (stmts,
+          IdentMap.intersectionWith (flip withExtraSet) symtab extraSets <>
+          (withExtraSet mempty <$> symtab))
   where
     extraSets = foldl' f mempty . map (concatVertices . flattenSCC) $ scc
       where
         f a (fvs, idents, cs) =
-          mconcat (a:map (\ ident -> IdentMap.singleton ident extraSet') idents)
+          mconcat (a:map (`IdentMap.singleton` extraSet') idents)
           where
             extraSet' = fvs <> extraSet
             extraSet = mconcat . map (a!) $ cs

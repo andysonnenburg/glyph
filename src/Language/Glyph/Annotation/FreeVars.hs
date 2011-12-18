@@ -1,25 +1,25 @@
 {-# LANGUAGE FlexibleInstances, IncoherentInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Glyph.Annotation.FreeVars
-       ( module Language.Glyph.Annotation.FreeVars.Class
-       , module Language.Glyph.Annotation.With
+       ( module Language.Glyph.Annotation
+       , module Language.Glyph.Annotation.FreeVars.Class
        , FreeVars
        , withFreeVars
        ) where
 
+import Language.Glyph.Annotation
 import Language.Glyph.Annotation.FreeVars.Class hiding (FreeVars)
 import qualified Language.Glyph.Annotation.FreeVars.Class as Class
-import Language.Glyph.Annotation.With
 
 newtype FreeVars
   = FreeVars { unFreeVars :: Class.FreeVars
              } deriving Show
 
-withFreeVars :: a -> Class.FreeVars -> With a FreeVars
-withFreeVars a = With a . FreeVars
+withFreeVars :: Class.FreeVars -> a -> Annotated FreeVars a
+withFreeVars = Annotated . FreeVars
 
-instance HasFreeVars (With a FreeVars) where
-  freeVars (With _ x) = unFreeVars x
+instance HasFreeVars (Annotated FreeVars a) where
+  freeVars (Annotated x _) = unFreeVars x
 
-instance HasFreeVars a => HasFreeVars (With a b) where
-  freeVars (With x _) = freeVars x
+instance HasFreeVars b => HasFreeVars (Annotated a b) where
+  freeVars (Annotated _ x) = freeVars x

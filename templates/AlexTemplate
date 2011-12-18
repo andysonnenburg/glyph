@@ -106,10 +106,10 @@ alex_scan_tkn user orig_input len input s last_acc =
 	check_accs [] = last_acc
 	check_accs (AlexAcc a : _) = AlexLastAcc a input (len)
 	check_accs (AlexAccSkip : _)  = AlexLastSkip  input (len)
-	check_accs (AlexAccPred a predx : rest)
+	check_accs (AlexAccPred a predx : _rest)
 	   | predx user orig_input (len) input
 	   = AlexLastAcc a input (len)
-	check_accs (AlexAccSkipPred predx : rest)
+	check_accs (AlexAccSkipPred predx : _rest)
 	   | predx user orig_input (len) input
 	   = AlexLastSkip input (len)
 	check_accs (_ : rest) = check_accs rest
@@ -120,9 +120,9 @@ data AlexLastAcc a
   | AlexLastSkip  !AlexInput !Int
 
 instance Functor AlexLastAcc where
-    fmap f AlexNone = AlexNone
+    fmap _f AlexNone = AlexNone
     fmap f (AlexLastAcc x y z) = AlexLastAcc (f x) y z
-    fmap f (AlexLastSkip x y) = AlexLastSkip x y
+    fmap _f (AlexLastSkip x y) = AlexLastSkip x y
 
 data AlexAcc a user
   = AlexAcc a

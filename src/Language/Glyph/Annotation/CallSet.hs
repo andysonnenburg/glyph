@@ -1,25 +1,25 @@
 {-# LANGUAGE FlexibleInstances, IncoherentInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Glyph.Annotation.CallSet
-       ( module Language.Glyph.Annotation.CallSet.Class
-       , module Language.Glyph.Annotation.With
+       ( module Language.Glyph.Annotation
+       , module Language.Glyph.Annotation.CallSet.Class
        , CallSet
        , withCallSet
        ) where
 
+import Language.Glyph.Annotation
 import Language.Glyph.Annotation.CallSet.Class hiding (CallSet)
 import qualified Language.Glyph.Annotation.CallSet.Class as Class
-import Language.Glyph.Annotation.With
 
 newtype CallSet
   = CallSet { unCallSet :: Class.CallSet
             } deriving Show
 
-withCallSet :: a -> Class.CallSet -> With a CallSet
-withCallSet a = With a . CallSet
+withCallSet :: Class.CallSet -> a -> Annotated CallSet a
+withCallSet = Annotated . CallSet
 
-instance HasCallSet (With a CallSet) where
-  callSet (With _ x) = unCallSet x
+instance HasCallSet (Annotated CallSet a) where
+  callSet (Annotated x _) = unCallSet x
 
-instance HasCallSet a => HasCallSet (With a b) where
-  callSet (With x _) = callSet x
+instance HasCallSet b => HasCallSet (Annotated a b) where
+  callSet (Annotated _ x) = callSet x

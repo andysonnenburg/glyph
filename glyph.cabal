@@ -6,21 +6,25 @@ cabal-version: >= 1.2
 executable glyph
   main-is: Main.hs
   other-modules:
-    Language.Glyph.Internal.Lex
-    Language.Glyph.Internal.Parse
+    Language.Glyph.Lex.Internal
+    Language.Glyph.Parse.Internal
+    -- Language.Glyph.ASM.Lex.Internal
+    -- Language.Glyph.ASM.Parse.Internal
+    Language.Glyph.HM.Lex.Internal
+    Language.Glyph.HM.Parse.Internal
   hs-source-dirs: src
   build-depends:
     base == 4.*,
     array,
-    containers,
     bytestring,
-    text,
+    cmdargs,
+    comonad,
+    containers,
     mtl,
-    semigroups,
     semigroupoids,
+    semigroups,
     syb,
     template-haskell,
-    comonad,
-    cmdargs
+    text
   build-tools: alex, happy
-  ghc-options: -O2 -Wall
+  ghc-options: -Wall -O3

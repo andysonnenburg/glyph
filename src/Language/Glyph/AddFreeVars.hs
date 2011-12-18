@@ -4,34 +4,31 @@ module Language.Glyph.AddFreeVars
        ) where
 
 import Control.Applicative
-import Control.Comonad
-import Control.Monad.Reader
 
 import Language.Glyph.Annotation.FreeVars hiding (freeVars)
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Generics
-import Language.Glyph.Location
 import Language.Glyph.Monoid
-import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Syntax
 
-addFreeVars :: ( HasSort a
-              , MonadReader [Located (Stmt Ident)] m
-              ) => IdentMap a -> m (IdentMap (With a FreeVars))
-addFreeVars symtab = do
-  freeVars <- asks $ freeVarsQ symtab
-  return $
-    IdentMap.intersectionWith withFreeVars symtab freeVars <>
-    ((`withFreeVars` mempty) <$> symtab)
+addFreeVars :: ( Data a
+              , HasSort b
+              , Monad m
+              ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap (Annotated FreeVars b))
+addFreeVars (stmts, symtab) = do
+  let symtab' = freeVarsQ symtab stmts
+  return (stmts,
+          IdentMap.intersectionWith (flip withFreeVars) symtab symtab' <>
+          (withFreeVars mempty <$> symtab))
 
 freeVarsQ :: (HasSort a, Data b) => IdentMap a -> b -> IdentMap IdentSet
 freeVarsQ symtab =
   everythingButFuns (<>)
-  (mempty `mkQ` queryStmt `extQ` queryExpr)
+  (const mempty `ext1Q` queryStmt `ext1Q` queryExpr)
   where
     queryStmt (FunDeclS x params stmts) =
       queryFun (ident x) params stmts
@@ -50,14 +47,18 @@ freeVarsQ symtab =
         declaredVars = varDecls <> IdentSet.fromList (map ident params)
         varDecls = varDeclsQ stmts
         vars = varsQ symtab stmts
-        nestedFreeVars = mconcat . map (freeVars!) . IdentSet.toList $ nestedFuns
+        nestedFreeVars =
+          mconcat .
+          map (freeVars!) .
+          IdentSet.toList $
+          nestedFuns
         nestedFuns = funDeclsQ stmts
         freeVars = freeVarsQ symtab stmts
 
 varDeclsQ :: Data a => a -> IdentSet
 varDeclsQ =
   everythingButFuns (<>)
-  (mempty `mkQ` queryStmt)
+  (const mempty `ext1Q` queryStmt)
   where
     queryStmt (VarDeclS x _) =
       IdentSet.singleton (ident x)
@@ -68,18 +69,16 @@ varsQ :: (HasSort a, Data b) => IdentMap a -> b -> IdentSet
 varsQ symtab =
   everythingButFuns (<>)
   (mempty `mkQ` queryExpr)
-  where    
-    queryExpr (VarE x) | Var <- sort (symtab!k) =
-      IdentSet.singleton k
-      where
-        k = extract x
+  where  
+    queryExpr x | Var <- sort (symtab!x) =
+      IdentSet.singleton x
     queryExpr _ =
       mempty
 
 funDeclsQ :: Data a => a -> IdentSet
 funDeclsQ =
   everythingButFuns (<>)
-  (mempty `mkQ` queryStmt `extQ` queryExpr)
+  (const mempty `ext1Q` queryStmt `ext1Q` queryExpr)
   where
     queryStmt (FunDeclS x _ _) =
       IdentSet.singleton (ident x)
@@ -90,6 +89,3 @@ funDeclsQ =
       IdentSet.singleton x
     queryExpr _ =
       mempty
-
-ident :: Located (Named Ident) -> Ident
-ident = extract . extract

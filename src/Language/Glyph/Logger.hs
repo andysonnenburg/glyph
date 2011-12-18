@@ -4,12 +4,12 @@
   , MultiParamTypeClasses #-}
 module Language.Glyph.Logger
        ( LoggerT
+       , LoggerException (..)
        , runLoggerT
        ) where
 
 import Control.Applicative
 import Control.Exception
-import qualified Control.Monad.Error as Error
 import qualified Control.Monad.Trans as Trans
 import Control.Monad.State hiding (liftIO, put)
 import Control.Monad.Writer.Class
@@ -27,25 +27,16 @@ newtype LoggerT m a
                        , Applicative
                        , Monad
                        , MonadIO
+                       , MonadFix
                        )
 
 data LoggerException
-  = PreviousErrors
-  | StrMsgError String
-  | NoMsgError deriving Typeable
+  = PreviousErrors deriving Typeable
 
 instance Show LoggerException where
-  show x =
-    case x of
-      PreviousErrors -> "failed due to previous errors"
-      StrMsgError s -> s
-      NoMsgError -> "internal error"
+  show _ = "failed due to previous errors"
 
 instance Exception LoggerException
-
-instance Error.Error LoggerException where
-  strMsg = StrMsgError
-  noMsg = NoMsgError
 
 type S = Bool
 

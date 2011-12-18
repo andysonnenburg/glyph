@@ -8,12 +8,13 @@ import Control.Monad.Error
 
 import Data.ByteString.Lazy (ByteString)
 
-import Language.Glyph.Location
-import qualified Language.Glyph.Internal.Parse as Internal
+import Language.Glyph.Annotation.Location
+import Language.Glyph.Ident
+import qualified Language.Glyph.Parse.Internal as Internal
 import Language.Glyph.Parser
 import Language.Glyph.Syntax
 
-parse :: MonadError ParseException m =>
-        ByteString ->
-        m [Located (Stmt ())]
+parse :: ( MonadError ParseException m
+        , MonadIdentSupply m
+        ) => ByteString -> m [Stmt Location]
 parse = runParserT Internal.parse

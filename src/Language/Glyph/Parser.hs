@@ -4,4 +4,4 @@ module Language.Glyph.Parser
        , runParserT
        ) where
 
-import Language.Glyph.Internal.Parser
+import Language.Glyph.Parser.Internal

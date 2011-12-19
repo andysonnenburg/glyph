@@ -1,6 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, DeriveFunctor, MultiParamTypeClasses #-}
 module Language.Glyph.HM.Syntax
        ( Exp (..)
+       , ExpView (..)
        , Pat (..)
        , varE
        , appE
@@ -22,25 +23,27 @@ module Language.Glyph.HM.Syntax
        , tupleP
        ) where
 
-import Control.Monad hiding (void)
+import Control.Monad
+import Control.Monad.Reader
 
 import Data.Data
 
 import Language.Glyph.Ident
+import Language.Glyph.View
 
-import Prelude hiding (abs)
+data Exp a = Exp a (ExpView a) deriving (Show, Typeable, Data, Functor)
 
-data Exp
+data ExpView a
   = VarE Ident
-  | AbsE Pat Exp
-  | AppE Exp Exp
-  | LetE [Ident] Exp Exp
+  | AbsE Pat (Exp a)
+  | AppE (Exp a) (Exp a)
+  | LetE [Ident] (Exp a) (Exp a)
     
   | BoolE Bool
   | VoidE
   | IntE Int
   | DoubleE Double
-  | TupleE [Exp]
+  | TupleE [Exp a]
     
   | Undefined
   | AsTypeOf
@@ -48,69 +51,100 @@ data Exp
   | RunCont
   | Return
   | Then
-  | CallCC deriving (Typeable, Data, Show)
+  | CallCC deriving (Show, Typeable, Data, Functor)
+
+instance View (Exp a) (ExpView a) where
+  view (Exp _ x) = x
+  updateView (Exp x _) = Exp x
 
 data Pat
   = VarP Ident
-  | TupleP [Ident] deriving (Typeable, Data, Show)
+  | TupleP [Ident] deriving (Show, Typeable, Data)
 
-varE :: Monad m => Ident -> m Exp
-varE = Prelude.return . VarE
+varE :: MonadReader a m => Ident -> m (Exp a)
+varE x = do
+  a <- ask
+  return $ Exp a $ VarE x
 
-appE :: Monad m => m Exp -> m Exp -> m Exp
+appE :: MonadReader a m => m (Exp a) -> m (Exp a) -> m (Exp a)
 appE f x = do
+  a <- ask
   f' <- f
   x' <- x
-  return $ AppE f' x'
+  return $ Exp a $ AppE f' x'
 
-absE :: Monad m => Pat -> m Exp -> m Exp
+absE :: MonadReader a m => Pat -> m (Exp a) -> m (Exp a)
 absE x e = do
+  a <- ask
   e' <- e
-  return $ AbsE x e'
+  return $ Exp a $ AbsE x e'
 
-letE :: Monad m => [Ident] -> m Exp -> m Exp -> m Exp
+letE :: MonadReader a m => [Ident] -> m (Exp a) -> m (Exp a) -> m (Exp a)
 letE x e e' = do
-  a <- e
-  b <- e'
-  return $ LetE x a b
+  a <- ask
+  v <- liftM2 (LetE x) e e'
+  return $ Exp a v
 
-boolE :: Monad m => Bool -> m Exp
-boolE = Prelude.return . BoolE
+boolE :: MonadReader a m => Bool -> m (Exp a)
+boolE bool = do
+  a <- ask
+  return $ Exp a $ BoolE bool
 
-voidE :: Monad m => m Exp
-voidE = Prelude.return VoidE
+voidE :: MonadReader a m => m (Exp a)
+voidE = do
+  a <- ask
+  return $ Exp a $ VoidE
 
-intE :: Monad m => Int -> m Exp
-intE = Prelude.return . IntE
+intE :: MonadReader a m => Int -> m (Exp a)
+intE x = do
+  a <- ask
+  return $ Exp a $ IntE x
 
-doubleE :: Monad m => Double -> m Exp
-doubleE = return . DoubleE
+doubleE :: MonadReader a m => Double -> m (Exp a)
+doubleE x = do
+  a <- ask
+  return $ Exp a $ DoubleE x
 
-tupleE :: Monad m => [m Exp] -> m Exp
+tupleE :: MonadReader a m => [m (Exp a)] -> m (Exp a)
 tupleE x = do
+  a <- ask
   x' <- sequence x
-  return $ TupleE x'
+  return $ Exp a $ TupleE x'
 
-undefined' :: Monad m => m Exp
-undefined' = return Undefined
+undefined' :: MonadReader a m => m (Exp a)
+undefined' = do
+  a <- ask
+  return $ Exp a $ Undefined
 
-asTypeOf' :: Monad m => m Exp -> m Exp -> m Exp
-x `asTypeOf'` y = appE (appE (return AsTypeOf) x) y
+asTypeOf' :: MonadReader a m => m (Exp a) -> m (Exp a) -> m (Exp a)
+x `asTypeOf'` y = do
+  a <- ask
+  appE (appE (return $ Exp a $ AsTypeOf) x) y
 
-fix' :: Monad m => m Exp -> m Exp
-fix' f = appE (return Fix) f
+fix' :: MonadReader a m => m (Exp a) -> m (Exp a)
+fix' f = do
+  a <- ask
+  appE (return $ Exp a $ Fix) f
 
-runCont :: Monad m => m Exp -> m Exp
-runCont m = appE (return RunCont) m
+runCont :: MonadReader a m => m (Exp a) -> m (Exp a)
+runCont m = do
+  a <- ask
+  appE (return $ Exp a $ RunCont) m
 
-return' :: Monad m => m Exp -> m Exp
-return' a = appE (return Return) a
+return' :: MonadReader a m => m (Exp a) -> m (Exp a)
+return' e = do
+  a <- ask
+  appE (return $ Exp a $ Return) e
 
-then' :: Monad m => m Exp -> m Exp -> m Exp
-m `then'` n = appE (appE (return Then) m) n
+then' :: MonadReader a m => m (Exp a) -> m (Exp a) -> m (Exp a)
+m `then'` n = do
+  a <- ask
+  appE (appE (return $ Exp a $ Then) m) n
 
-callCC :: Monad m => m Exp -> m Exp
-callCC f = appE (return CallCC) f
+callCC :: MonadReader a m => m (Exp a) -> m (Exp a)
+callCC f = do
+  a <- ask
+  appE (return $ Exp a $ CallCC) f
 
 varP :: Ident -> Pat
 varP = VarP

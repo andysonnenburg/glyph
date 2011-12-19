@@ -1,15 +1,13 @@
 {-# LANGUAGE FlexibleInstances, IncoherentInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Glyph.Annotation.Type
-       ( module Language.Glyph.Annotation
-       , module Language.Glyph.Annotation.Type.Class
-       , module Language.Glyph.Type
+       ( module X
        ) where
 
-import Language.Glyph.Annotation
-import Language.Glyph.Annotation.Type.Class
+import Language.Glyph.Annotation as X
+import Language.Glyph.Annotation.Type.Class as X
 import Language.Glyph.Syntax.Internal
-import Language.Glyph.Type
+import Language.Glyph.Type as X
 
 instance HasType Type where
   type' = id

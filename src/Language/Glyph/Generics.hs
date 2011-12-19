@@ -80,7 +80,7 @@ extM' ::  ( Monad m
          , Typeable a
          , Typeable b
          ) => (a -> m (a, Bool)) -> (b -> m (b, Bool)) -> a -> m (a, Bool)
-extM' def ext = unM ((M def) `ext0` (M ext))
+extM' def ext = unM (M def `ext0` M ext)
 
 ext1M' :: ( Monad m
          , Data d
@@ -89,6 +89,6 @@ ext1M' :: ( Monad m
          (forall e. Data e => e -> m (e, Bool)) ->
          (forall f. Data f => t f -> m (t f, Bool)) ->
          d -> m (d, Bool)
-ext1M' def ext = unM ((M def) `ext1` (M ext))
+ext1M' def ext = unM (M def `ext1` M ext)
 
 newtype M m x = M { unM :: x -> m (x, Bool) }

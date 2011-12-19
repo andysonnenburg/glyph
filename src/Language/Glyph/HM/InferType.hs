@@ -2,7 +2,6 @@
     DeriveDataTypeable
   , FlexibleContexts
   , GeneralizedNewtypeDeriving
-  , Rank2Types
   , ViewPatterns #-}
 module Language.Glyph.HM.InferType
        ( Substitution
@@ -20,12 +19,7 @@ import Data.Maybe
 import Language.Glyph.Generics
 import Language.Glyph.HM.Syntax
 import Language.Glyph.Ident
-import Language.Glyph.IdentMap (IdentMap,
-                                (!),
-                                delete,
-                                difference,
-                                fromList,
-                                singleton)
+import Language.Glyph.IdentMap
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentMap as IdentMap
 import qualified Language.Glyph.IdentSet as IdentSet
@@ -34,9 +28,6 @@ import Language.Glyph.Message
 import Language.Glyph.Monoid
 import Language.Glyph.Type
 import qualified Language.Glyph.Type as Type
-import Language.Glyph.View
-
-import Debug.Trace
 
 inferType :: ( HasLocation a
             , MonadIdentSupply m
@@ -75,8 +66,10 @@ inferExp :: ( HasLocation a
            , MonadIdentSupply m
            , MonadWriter Message m
            ) => TypeEnvironment -> Exp a -> m (Substitution, Type)
-inferExp env e = runReaderT (w env (view e)) (location e)
+inferExp = go
   where
+    go gamma e =
+      runReaderT (w gamma (view e)) (location e)
     w gamma (VarE x) = do
       let sigma = gamma!x
       tau <- instantiate sigma
@@ -95,7 +88,7 @@ inferExp env e = runReaderT (w env (view e)) (location e)
       beta <- replicateM (length x) fresh
       (s1, tau1) <- inferExp gamma e1
       s1' <- mgu (apply s1 (Tuple beta)) tau1
-      sigma <- mapM (generalize (apply s1' gamma)) (map (apply s1') beta)
+      sigma <- mapM (generalize (apply s1' gamma) . apply s1') beta
       (s2, tau2) <- inferExp (apply s1' (deleteList x gamma) <> fromLists x sigma) e2
       return (s2 `compose` s1' `compose` s1, apply s2 tau2)
     w _gamma (BoolE _) =
@@ -137,16 +130,21 @@ inferExp env e = runReaderT (w env (view e)) (location e)
     pat (TupleP x) = do
       beta <- replicateM (length x) fresh
       return (fromLists x (map mono beta), mempty, Tuple beta)
-    tuple gamma es = do
-      (s, reverse -> taus) <- go (reverse es)
-      return (s, Tuple taus)
-      where
-        go [] =
-          return (mempty, [])
-        go (x:xs) = do
-          (s1, taus) <- go xs
-          (s2, tau) <- inferExp (apply s1 gamma) x
-          return (s2 `compose` s1, tau:taus)
+
+tuple :: ( HasLocation a
+        , MonadIdentSupply m
+        , MonadWriter Message m
+        ) => TypeEnvironment -> [Exp a] -> m (Substitution, Type)
+tuple gamma es = do
+  (s, reverse -> taus) <- go (reverse es)
+  return (s, Tuple taus)
+  where
+    go [] =
+      return (mempty, [])
+    go (x:xs) = do
+      (s1, taus) <- go xs
+      (s2, tau) <- inferExp (apply s1 gamma) x
+      return (s2 `compose` s1, tau:taus)
 
 fresh :: MonadIdentSupply m => m Type
 fresh = liftM Type.Var newIdent

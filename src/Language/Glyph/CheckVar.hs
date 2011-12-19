@@ -14,7 +14,6 @@ module Language.Glyph.CheckVar
        , checkVar
        ) where
 
-import Control.Applicative
 import Control.Exception hiding (finally)
 import Control.Monad.Error
 import Control.Monad.Reader
@@ -332,9 +331,7 @@ runWithLocationT' = flip runWithLocationT
 
 newtype WithLocationT m a
   = WithLocationT { unWithLocationT :: ReaderT Location m a
-                  } deriving ( Functor
-                             , Applicative
-                             , Monad
+                  } deriving ( Monad
                              , MonadTrans
                              )
 

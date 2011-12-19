@@ -29,17 +29,20 @@ import Language.Glyph.IdentMap (IdentMap,
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentMap as IdentMap
 import qualified Language.Glyph.IdentSet as IdentSet
+import Language.Glyph.Location
 import Language.Glyph.Message
 import Language.Glyph.Monoid
 import Language.Glyph.Type
 import qualified Language.Glyph.Type as Type
+import Language.Glyph.View
 
 import Debug.Trace
 
-inferType :: ( MonadIdentSupply m
+inferType :: ( HasLocation a
+            , MonadIdentSupply m
             , MonadWriter Message m
-            ) => Exp -> m (Substitution, Type)
-inferType = inferExpr mempty
+            ) => Exp a -> m (Substitution, Type)
+inferType = inferExp mempty
 
 type TypeEnvironment = IdentMap TypeScheme
 newtype Substitution =
@@ -68,10 +71,11 @@ instance Error TypeException where
 
 instance Exception TypeException
 
-inferExpr :: ( MonadIdentSupply m
-            , MonadWriter Message m
-            ) => TypeEnvironment -> Exp -> m (Substitution, Type)
-inferExpr = w
+inferExp :: ( HasLocation a
+           , MonadIdentSupply m
+           , MonadWriter Message m
+           ) => TypeEnvironment -> Exp a -> m (Substitution, Type)
+inferExp env e = runReaderT (w env (view e)) (location e)
   where
     w gamma (VarE x) = do
       let sigma = gamma!x
@@ -79,20 +83,20 @@ inferExpr = w
       return (mempty, tau)
     w gamma (AbsE p e) = do
       (gamma', s1, tau1) <- pat p
-      (s2, tau2) <- w (apply s1 (deletePat p gamma) <> gamma') e
+      (s2, tau2) <- inferExp (apply s1 (deletePat p gamma) <> gamma') e
       return (s2 `compose` s1, apply s2 tau1 :->: tau2)
     w gamma (AppE e1 e2) = do
-      (s1, tau1) <- w gamma e1
-      (s2, tau2) <- w (apply s1 gamma) e2
+      (s1, tau1) <- inferExp gamma e1
+      (s2, tau2) <- inferExp (apply s1 gamma) e2
       beta <- fresh
       s3 <- mgu (apply s2 tau1) (tau2 :->: beta)
       return (s3 `compose` s2 `compose` s1, apply s3 beta)
     w gamma (LetE x e1 e2) = do
       beta <- replicateM (length x) fresh
-      (s1, tau1) <- w gamma e1
+      (s1, tau1) <- inferExp gamma e1
       s1' <- mgu (apply s1 (Tuple beta)) tau1
       sigma <- mapM (generalize (apply s1' gamma)) (map (apply s1') beta)
-      (s2, tau2) <- w (apply s1' (deleteList x gamma) <> fromLists x sigma) e2
+      (s2, tau2) <- inferExp (apply s1' (deleteList x gamma) <> fromLists x sigma) e2
       return (s2 `compose` s1' `compose` s1, apply s2 tau2)
     w _gamma (BoolE _) =
       return (mempty, Bool)
@@ -141,7 +145,7 @@ inferExpr = w
           return (mempty, [])
         go (x:xs) = do
           (s1, taus) <- go xs
-          (s2, tau) <- w (apply s1 gamma) x
+          (s2, tau) <- inferExp (apply s1 gamma) x
           return (s2 `compose` s1, tau:taus)
 
 fresh :: MonadIdentSupply m => m Type
@@ -231,14 +235,16 @@ uncons [] = Nothing
 uncons (x:xs) = Just (x, xs)
 -}
 
-mgu :: MonadWriter Message m => Type -> Type -> m Substitution
+mgu :: ( MonadReader Location m
+      , MonadWriter Message m
+      ) => Type -> Type -> m Substitution
 mgu tau tau' =
   case (tau, tau') of
     (Type.Var a, Type.Var b) | a == b ->
       return mempty
     (Type.Var a, _) ->
       if IdentSet.member a (typeVars tau')
-        then do tell $ Error $ OccursCheckFailed tau tau'
+        then do tellError $ OccursCheckFailed tau tau'
                 return mempty
         else return $ Substitution $ singleton a tau'
     (_, Type.Var _) ->
@@ -263,7 +269,7 @@ mgu tau tau' =
     (Cont tau, Cont tau') ->
       mgu tau tau'
     _ -> do
-      tell $ Error $ TypeError tau tau'
+      tellError $ TypeError tau tau'
       return mempty
 
 apply :: Data a => Substitution -> a -> a

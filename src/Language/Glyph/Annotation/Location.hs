@@ -7,6 +7,7 @@ module Language.Glyph.Annotation.Location
 
 import Language.Glyph.Annotation
 import Language.Glyph.Annotation.Location.Class
+import Language.Glyph.HM.Syntax
 import Language.Glyph.Syntax.Internal
 
 instance HasLocation Location where
@@ -23,3 +24,6 @@ instance HasLocation a => HasLocation (Stmt a) where
 
 instance HasLocation a => HasLocation (Expr a) where
   location (Expr x _) = location x
+
+instance HasLocation a => HasLocation (Exp a) where
+  location (Exp x _) = location x

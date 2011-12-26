@@ -3,8 +3,9 @@ module Language.Glyph.Generics
        ( module Data.Generics
        , everythingButFuns
        , everythingThisScope
-       , everywhereThisScopeM
        , everywhereButM'
+       , everywhereThisScope
+       , everywhereThisScopeM
        , mkM'
        , extM'
        , ext1M'
@@ -38,6 +39,18 @@ everythingThisScope k f =
     
     gE x@(FunE _ _ _) = (f x, True)
     gE x = (f x, False)
+
+everywhereThisScope :: GenericT -> GenericT
+everywhereThisScope =
+  everywhereBut (const False `ext1Q` queryStmt `ext1Q` queryExpr)
+  where
+    queryStmt (FunDeclS _ _ _) = True
+    queryStmt (BlockS _) = True
+    queryStmt _ = False
+    
+    queryExpr (FunE _ _ _) = True
+    queryExpr _ = False
+    
 
 everywhereThisScopeM :: Monad m => GenericM m -> GenericM m
 everywhereThisScopeM f =

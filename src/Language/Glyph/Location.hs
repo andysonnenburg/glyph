@@ -6,18 +6,20 @@ module Language.Glyph.Location
        ( module Language.Glyph.Annotation.Location
        , LocatedException
        , locatedMsg
-       , tellError
+       , logError
        ) where
 
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
-import Control.Monad.Writer
 
 import Data.Data
 
 import Language.Glyph.Annotation.Location
+import Language.Glyph.Logger
 import Language.Glyph.Message
+
+import Prelude hiding (log)
 
 data LocatedException
   = forall e. Exception e => LocatedException Location e
@@ -40,10 +42,10 @@ instance Error LocatedException where
 locatedMsg :: Exception e => Location -> e -> LocatedException
 locatedMsg = LocatedException
 
-tellError :: ( Exception e
-            , MonadReader Location m
-            , MonadWriter Message m
-            ) => e -> m ()
-tellError x = do
+logError :: ( Exception e
+           , MonadReader Location m
+           , MonadLogger Message m
+           ) => e -> m ()
+logError x = do
   l <- ask
-  tell $ Error $ locatedMsg l x
+  log $ Error $ locatedMsg l x

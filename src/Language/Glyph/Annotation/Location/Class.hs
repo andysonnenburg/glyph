@@ -34,6 +34,10 @@ instance Semigroup Location where
   Location begin end <> Location begin' end' =
     Location (min begin begin') (max end end')
 
+instance Monoid Location where
+  mempty = Location (Position 0 0) (Position 0 0)
+  mappend = (<>)
+
 class HasLocation a where
   location :: a -> Location
 

@@ -12,13 +12,13 @@ module Language.Glyph.CheckFun
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
-import Control.Monad.Writer
 
 import Data.Generics
 import qualified Data.Text as Text
 
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Location
+import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.IdentMap (IdentMap, (!))
 import Language.Glyph.Syntax
@@ -27,7 +27,7 @@ checkFun :: forall a b m.
            ( Data a
            , HasLocation a
            , HasSort b
-           , MonadWriter Message m
+           , MonadLogger Message m
            ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap b)
 checkFun (stmts, symtab) = do
   checkFun' stmts
@@ -38,7 +38,7 @@ checkFun (stmts, symtab) = do
     queryExpr :: Expr a -> m ()
     queryExpr x@(view -> AssignE name _)
       | Fun <- sort (symtab!ident name) =
-        runReaderT' $ tellError $ AssignmentToFunDecl (view name)
+        runReaderT' $ logError $ AssignmentToFunDecl (view name)
       where
         runReaderT' m = runReaderT m (location x)
     queryExpr _ =

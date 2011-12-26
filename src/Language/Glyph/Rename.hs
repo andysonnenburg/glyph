@@ -15,14 +15,15 @@ import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.State
-import Control.Monad.Writer
 
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Monoid
 import qualified Data.Text as Text
 import Data.Typeable
 
 import Language.Glyph.Location
+import Language.Glyph.Logger
 import Language.Glyph.Generics
 import Language.Glyph.Ident.Internal
 import Language.Glyph.Message
@@ -31,7 +32,7 @@ import Language.Glyph.Syntax.Internal
 rename :: forall a b m.
          ( Data a
          , HasLocation a
-         , MonadWriter Message m
+         , MonadLogger Message m
          ) => ([Stmt a], b) -> m ([Stmt a], b)
 rename = go
   where
@@ -117,7 +118,7 @@ instance Error NameException where
 
 updateName :: ( MonadReader Location m
              , MonadState S m
-             , MonadWriter Message m
+             , MonadLogger Message m
              ) => Name -> m Name
 updateName name = do
   a <- lookupIdent name
@@ -125,7 +126,7 @@ updateName name = do
 
 defineName :: ( MonadReader Location m
              , MonadState S m
-             , MonadWriter Message m
+             , MonadLogger Message m
              ) => Name -> m ()
 defineName x = do
   S {..} <- get
@@ -134,7 +135,7 @@ defineName x = do
     nothing =
       insertName x
     just _ =
-      tellError $ AlreadyDefined $ view x
+      logError $ AlreadyDefined $ view x
 
 insertName :: MonadState S m => Name -> m () 
 insertName x = do
@@ -143,14 +144,14 @@ insertName x = do
 
 lookupIdent :: ( MonadReader Location m
               , MonadState S m
-              , MonadWriter Message m
+              , MonadLogger Message m
               ) => Name -> m Ident
 lookupIdent x = do
   S {..} <- get
   maybe nothing just $ lookupIdent' (view x) (scope:scopes)
   where
     nothing = do
-      tellError $ NotFound (view x)
+      logError $ NotFound (view x)
       return $ ident x
     just =
       return

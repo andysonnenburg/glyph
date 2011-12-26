@@ -24,6 +24,7 @@ import Control.Monad.Writer
 import Data.Data
 
 import Language.Glyph.Error
+import Language.Glyph.Logger
 import Language.Haskell.TH.Syntax (showName)
 import qualified Language.Haskell.TH as TH
 
@@ -55,6 +56,7 @@ newtype IdentSupplyT m a =
                           , MonadTrans
                           , MonadIO
                           )
+deriving instance MonadLogger w m => MonadLogger w (IdentSupplyT m)
 deriving instance MonadReader r m => MonadReader r (IdentSupplyT m)
 deriving instance MonadWriter w m => MonadWriter w (IdentSupplyT m)
 

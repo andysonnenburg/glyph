@@ -36,7 +36,3 @@ instance Extend (Annotated a) where
 
 instance Comonad (Annotated a) where
   extract (Annotated _ a) = a
-
-instance View (Annotated a b) a where
-  view (Annotated x _) = x
-  Annotated _ a `updateView` x = Annotated x a

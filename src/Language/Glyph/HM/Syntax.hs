@@ -93,7 +93,7 @@ boolE bool = do
 voidE :: MonadReader a m => m (Exp a)
 voidE = do
   a <- ask
-  return $ Exp a $ VoidE
+  return $ Exp a VoidE
 
 intE :: MonadReader a m => Int -> m (Exp a)
 intE x = do
@@ -114,37 +114,37 @@ tupleE x = do
 undefined' :: MonadReader a m => m (Exp a)
 undefined' = do
   a <- ask
-  return $ Exp a $ Undefined
+  return $ Exp a Undefined
 
 asTypeOf' :: MonadReader a m => m (Exp a) -> m (Exp a) -> m (Exp a)
 x `asTypeOf'` y = do
   a <- ask
-  appE (appE (return $ Exp a $ AsTypeOf) x) y
+  appE (appE (return $ Exp a AsTypeOf) x) y
 
 fix' :: MonadReader a m => m (Exp a) -> m (Exp a)
 fix' f = do
   a <- ask
-  appE (return $ Exp a $ Fix) f
+  appE (return $ Exp a Fix) f
 
 runCont :: MonadReader a m => m (Exp a) -> m (Exp a)
 runCont m = do
   a <- ask
-  appE (return $ Exp a $ RunCont) m
+  appE (return $ Exp a RunCont) m
 
 return' :: MonadReader a m => m (Exp a) -> m (Exp a)
 return' e = do
   a <- ask
-  appE (return $ Exp a $ Return) e
+  appE (return $ Exp a Return) e
 
 then' :: MonadReader a m => m (Exp a) -> m (Exp a) -> m (Exp a)
 m `then'` n = do
   a <- ask
-  appE (appE (return $ Exp a $ Then) m) n
+  appE (appE (return $ Exp a Then) m) n
 
 callCC :: MonadReader a m => m (Exp a) -> m (Exp a)
 callCC f = do
   a <- ask
-  appE (return $ Exp a $ CallCC) f
+  appE (return $ Exp a CallCC) f
 
 varP :: Ident -> Pat
 varP = VarP

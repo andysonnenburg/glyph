@@ -12,7 +12,6 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
-import Control.Monad.Writer
 
 import Data.Maybe
 
@@ -24,6 +23,7 @@ import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentMap as IdentMap
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Location
+import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.Monoid
 import Language.Glyph.Type
@@ -31,7 +31,7 @@ import qualified Language.Glyph.Type as Type
 
 inferType :: ( HasLocation a
             , MonadIdentSupply m
-            , MonadWriter Message m
+            , MonadLogger Message m
             ) => Exp a -> m (Substitution, Type)
 inferType = inferExp mempty
 
@@ -64,7 +64,7 @@ instance Exception TypeException
 
 inferExp :: ( HasLocation a
            , MonadIdentSupply m
-           , MonadWriter Message m
+           , MonadLogger Message m
            ) => TypeEnvironment -> Exp a -> m (Substitution, Type)
 inferExp = go
   where
@@ -106,7 +106,7 @@ inferExp = go
       return (mempty, alpha)
     w _gamma AsTypeOf = do
       a <- fresh
-      return (mempty, a :->: (a :->: a))
+      return (mempty, a :->: a :->: a)
     w _gamma Fix = do
       a <- fresh
       return (mempty, (a :->: a) :->: a)
@@ -119,7 +119,7 @@ inferExp = go
     w _gamma Then = do
       a <- fresh
       b <- fresh
-      return (mempty, Cont a :->: (Cont b :->: Cont b))
+      return (mempty, Cont a :->: Cont b :->: Cont b)
     w _gamma CallCC = do
       a <- fresh
       b <- fresh
@@ -133,7 +133,7 @@ inferExp = go
 
 tuple :: ( HasLocation a
         , MonadIdentSupply m
-        , MonadWriter Message m
+        , MonadLogger Message m
         ) => TypeEnvironment -> [Exp a] -> m (Substitution, Type)
 tuple gamma es = do
   (s, reverse -> taus) <- go (reverse es)
@@ -187,7 +187,7 @@ typeVars =
       (mempty, False)
 
 {-
-normalize :: MonadWriter Message m => Constraints -> Subst -> m (Constraints, Subst)
+normalize :: MonadLogger Message m => Constraints -> Subst -> m (Constraints, Subst)
 normalize = go
   where
     go d phi = evalStateT normalize' (d, c, psi)
@@ -234,7 +234,7 @@ uncons (x:xs) = Just (x, xs)
 -}
 
 mgu :: ( MonadReader Location m
-      , MonadWriter Message m
+      , MonadLogger Message m
       ) => Type -> Type -> m Substitution
 mgu tau tau' =
   case (tau, tau') of
@@ -242,7 +242,7 @@ mgu tau tau' =
       return mempty
     (Type.Var a, _) ->
       if IdentSet.member a (typeVars tau')
-        then do tellError $ OccursCheckFailed tau tau'
+        then do logError $ OccursCheckFailed tau tau'
                 return mempty
         else return $ Substitution $ singleton a tau'
     (_, Type.Var _) ->
@@ -267,7 +267,7 @@ mgu tau tau' =
     (Cont tau, Cont tau') ->
       mgu tau tau'
     _ -> do
-      tellError $ TypeError tau tau'
+      logError $ TypeError tau tau'
       return mempty
 
 apply :: Data a => Substitution -> a -> a

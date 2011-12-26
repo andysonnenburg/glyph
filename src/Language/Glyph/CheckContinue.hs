@@ -10,18 +10,18 @@ module Language.Glyph.CheckContinue
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
-import Control.Monad.Writer
 
 import Data.Generics
 
 import Language.Glyph.Location
+import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.Syntax
 
 checkContinue :: forall a b m.
                 ( Data a
                 , HasLocation a
-                , MonadWriter Message m
+                , MonadLogger Message m
                 ) => ([Stmt a], b) -> m ([Stmt a], b)
 checkContinue (stmts, symtab) = do
   checkContinue' stmts
@@ -42,7 +42,7 @@ checkContinue (stmts, symtab) = do
         m = do
           illegalContinue <- ask
           when illegalContinue $
-            runReaderT (tellError IllegalContinue) (location x)
+            runReaderT (logError IllegalContinue) (location x)
     queryStmt _ = (return (), False)
     
     queryStmtView :: StmtView a -> (ReaderT Bool m (), Bool)

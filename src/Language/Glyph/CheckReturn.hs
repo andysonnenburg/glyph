@@ -10,18 +10,18 @@ module Language.Glyph.CheckReturn
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
-import Control.Monad.Writer
 
 import Data.Generics
 
 import Language.Glyph.Location
+import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.Syntax
 
 checkReturn :: forall a b m.
               ( Data a
               , HasLocation a
-              , MonadWriter Message m
+              , MonadLogger Message m
               ) => ([Stmt a], b) -> m ([Stmt a], b)
 checkReturn (stmts, symtab) = do
   checkReturn' stmts
@@ -41,7 +41,7 @@ checkReturn (stmts, symtab) = do
         m = do
           illegalReturn <- ask
           when illegalReturn $
-            runReaderT (tellError IllegalReturn) (location x)
+            runReaderT (logError IllegalReturn) (location x)
     queryStmt _ = (return (), False)
     
     queryStmtView :: StmtView a -> (ReaderT Bool m (), Bool)

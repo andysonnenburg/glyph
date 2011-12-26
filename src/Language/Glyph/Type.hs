@@ -26,6 +26,8 @@ data Type
   | Tuple [Type]
   | Cont Type deriving (Typeable, Data)
 
+infixr 9 :->:
+
 instance Show Type where
   show x =
     case x of

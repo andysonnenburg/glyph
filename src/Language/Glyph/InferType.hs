@@ -3,6 +3,7 @@
   , FlexibleInstances
   , GeneralizedNewtypeDeriving
   , MultiParamTypeClasses
+  , ScopedTypeVariables
   , StandaloneDeriving
   , UndecidableInstances
   , ViewPatterns #-}
@@ -12,36 +13,58 @@ module Language.Glyph.InferType
 
 import Control.Comonad
 import Control.Monad.Reader
+import Control.Monad.State
 import Control.Monad.Writer
 
+import Data.Graph
+
 import Language.Glyph.Annotation
+import Language.Glyph.Annotation.CallSet
 import Language.Glyph.Annotation.Location
 import Language.Glyph.Annotation.Type
+import Language.Glyph.Generics
 import Language.Glyph.HM.InferType hiding (inferType)
 import qualified Language.Glyph.HM.InferType as HM
 import Language.Glyph.HM.Syntax hiding (Exp (..), ExpView (..), Pat (..))
 import qualified Language.Glyph.HM.Syntax as HM
 import Language.Glyph.Ident.Internal
-import Language.Glyph.IdentMap (IdentMap)
+import Language.Glyph.IdentMap (IdentMap, (!))
+import qualified Language.Glyph.IdentMap as IdentMap
+import Language.Glyph.IdentSet (IdentSet)
+import qualified Language.Glyph.IdentSet as IdentSet
+import Language.Glyph.Logger
 import Language.Glyph.Message
+import Language.Glyph.Monoid
+import Language.Glyph.Symtab
+import Language.Glyph.Symtab.Instances
 import Language.Glyph.Syntax.Internal
 
-inferType :: ( HasLocation a
+inferType :: ( Data a
+            , HasLocation a
+            , Monoid a
+            , HasCallSet b
             , MonadIdentSupply m
-            , MonadWriter Message m
+            , MonadLogger Message m
             ) => ([Stmt a], IdentMap b) -> m (Substitution, Type)
-inferType (stmts, symtab) = HM.inferType =<< (toExp . transform) stmts
+inferType (stmts, symtab) = HM.inferType =<< runSymtabT (toExp stmts) symtab
 
-transform :: [Stmt a] -> [Stmt a]
-transform = id
+toExp :: ( Data a
+        , Monoid a
+        , HasCallSet b
+        , MonadIdentSupply m
+        , MonadSymtab b m
+        ) => [Stmt a] -> m (HM.Exp a)
+toExp stmts =
+  runReaderT' (mconcat $ map extract stmts) $
+  runCont $ callCC $ do
+    cc <- newIdent
+    runWithIdentT' cc $ absE (varP cc) (blockToExp stmts)
 
-toExp :: MonadIdentSupply m => [Stmt a] -> m (HM.Exp a)
-toExp stmts = runReaderT' undefined $ runCont $ callCC $ do
-  cc <- newIdent
-  runWithIdentT' cc $ absE (varP cc) (stmtsToExp stmts)
-
-stmtsToExp :: ( MonadIdentSupply m
+stmtsToExp :: ( Data a
+             , HasCallSet b
+             , MonadIdentSupply m
              , MonadReader a m
+             , MonadSymtab b m
              ) => [Stmt a] -> WithIdentT m (HM.Exp a)
 stmtsToExp [] =
   return' undefined'
@@ -54,18 +77,14 @@ stmtsToExp (s:ss) =
       stmtsToExp ss
     VarDeclS (ident -> x) expr ->
       let e = maybe undefined' exprToExp expr
-      in appE (absE
-               (varP x)
-               (return' (varE x `asTypeOf'` e) `then'` stmtsToExp ss)) e
-    FunDeclS (ident -> f) (map ident -> x) stmts ->
-      letE
-      [f]
+      in return' (varE x `asTypeOf'` e)
+         `then'`
+         stmtsToExp ss
+    FunDeclS (ident -> x) params stmts ->
+      letE [x]
       (fix'
-       (absE (tupleP [f]) $
-        tupleE [absE (tupleP x) $
-          runCont $ callCC $ do
-            cc <- newIdent
-            absE (varP cc) (withIdent cc (stmtsToExp stmts))]))
+       (absE (tupleP [x]) $
+        tupleE [funToExp params stmts]))
       (stmtsToExp ss)
     ReturnS expr -> do
       cc <- askIdent
@@ -111,12 +130,15 @@ stmtsToExp (s:ss) =
       `then'`
       stmtsToExp ss
     BlockS stmts ->
-      stmtsToExp stmts
+      blockToExp stmts
       `then'`
       stmtsToExp ss
 
-exprToExp :: ( MonadIdentSupply m
+exprToExp :: ( Data a
+            , HasCallSet b
+            , MonadIdentSupply m
             , MonadReader a m
+            , MonadSymtab b m
             ) => Expr a -> WithIdentT m (HM.Exp a)
 exprToExp e =
   local' (extract e) $
@@ -133,15 +155,94 @@ exprToExp e =
       exprToExp expr `asTypeOf'` boolE True
     VarE (ident -> x) ->
       varE x
-    FunE _ (map ident -> x) stmts ->
-      absE (tupleP x) $
-        runCont $ callCC $ do
-          cc <- newIdent
-          absE (varP cc) (withIdent cc (stmtsToExp stmts))
+    FunE _ params stmts ->
+      funToExp params stmts
     ApplyE expr exprs ->
       appE (exprToExp expr) (tupleE (map exprToExp exprs))
     AssignE (ident -> x) expr ->
       varE x `asTypeOf'` exprToExp expr
+
+funToExp :: ( Data a
+           , HasCallSet b
+           , MonadIdentSupply m
+           , MonadReader a m
+           , MonadSymtab b m
+           ) => [Name] -> [Stmt a] -> m (HM.Exp a)
+funToExp (map ident -> x) stmts =
+  absE (tupleP x) $
+    runCont $ callCC $ do
+      cc <- newIdent
+      absE (varP cc) (runWithIdentT' cc (blockToExp stmts))
+
+blockToExp :: ( Data a
+             , HasCallSet b
+             , MonadIdentSupply m
+             , MonadReader a m
+             , MonadSymtab b m
+             ) => [Stmt a] -> WithIdentT m (HM.Exp a)
+blockToExp stmts =
+  varDecls . funs . stmtsToExp $ stmts
+  where
+    varDecls = queryVarDecls stmts
+    
+    funs e' = do
+      callGraph <- queryFuns stmts
+      let scc = stronglyConnCompR callGraph
+          lets = map (map (\ (e, x, _) -> (x, e)) . flattenSCC) scc
+      letE [] (tupleE []) e'
+{-
+    funsToExp fs ss =
+      letE x
+      (fix'
+       (absE (tupleP x) $
+        tupleE e))
+      (stmtsToExp ss)
+      where
+        x = map fst fs
+        e = map snd fs
+-}
+    queryVarDecls =
+      everythingThisScope (.) $
+      id `mkQ` queryStmt
+      where
+        queryStmt stmt@(view -> VarDeclS (ident -> x) _expr) = f
+          where
+            f e' = local' (extract stmt) $ appE (absE (tupleP [x]) e') (tupleE [e])
+            e = undefined'
+        queryStmt _ = id
+    
+    queryFuns :: forall a b m.
+                ( Data a
+                , HasCallSet b
+                , MonadIdentSupply m
+                , MonadReader a m
+                , MonadSymtab b m 
+                ) => [Stmt a] -> m [(m (HM.Exp a), Ident, [Ident])]
+    queryFuns =
+      everythingThisScope append $
+      return mempty `mkQ` queryStmt `extQ` queryExpr
+      where
+        append = liftM2 (<>)
+        
+        queryStmt :: Stmt a -> m [(m (HM.Exp a), Ident, [Ident])]
+        queryStmt stmt@(view -> FunDeclS (ident -> x) params stmts) = do
+          symtab <- askSymtab
+          return [(local' r e, x, IdentSet.toList . callSet $ symtab!x)]
+          where
+            r = extract stmt
+            e = funToExp params stmts
+        queryStmt _ =
+          return mempty
+        
+        queryExpr :: Expr a -> m [(m (HM.Exp a), Ident, [Ident])]
+        queryExpr expr@(view -> FunE x params stmts) = do
+          symtab <- askSymtab
+          return [(local' r e, x, IdentSet.toList . callSet $ symtab!x)]
+          where
+            r = extract expr
+            e = funToExp params stmts
+        queryExpr _ =
+          return mempty      
 
 runReaderT' :: r -> ReaderT r m a -> m a
 runReaderT' = flip runReaderT
@@ -156,10 +257,10 @@ runWithIdentT' :: Ident -> WithIdentT m a -> m a
 runWithIdentT' = flip runWithIdentT
 
 newtype WithIdentT m a
-  = WithIdentT { unWithIdentT :: ReaderT Ident m a
-                  } deriving ( Monad
-                             , MonadTrans
-                             )
+  = WithIdentT ( ReaderT Ident m a
+               ) deriving ( Monad
+                          , MonadTrans
+                          )
 
 instance MonadReader r m => MonadReader r (WithIdentT m) where
   ask = lift ask
@@ -170,8 +271,8 @@ deriving instance MonadWriter w m => MonadWriter w (WithIdentT m)
 instance MonadIdentSupply m => MonadIdentSupply (WithIdentT m) where
   newIdent = lift newIdent
 
+instance MonadSymtab r m => MonadSymtab r (WithIdentT m) where
+  askSymtab = lift askSymtab
+
 askIdent :: Monad m => WithIdentT m Ident
 askIdent = WithIdentT ask
-
-withIdent :: Monad m => Ident -> WithIdentT m a -> WithIdentT m a
-withIdent x = WithIdentT . local (const x) . unWithIdentT

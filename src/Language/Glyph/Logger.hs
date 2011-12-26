@@ -3,7 +3,8 @@
   , GeneralizedNewtypeDeriving
   , MultiParamTypeClasses #-}
 module Language.Glyph.Logger
-       ( LoggerT
+       ( module Language.Glyph.Logger.Class
+       , LoggerT
        , LoggerException (..)
        , runLoggerT
        ) where
@@ -12,11 +13,11 @@ import Control.Applicative
 import Control.Exception
 import qualified Control.Monad.Trans as Trans
 import Control.Monad.State hiding (liftIO, put)
-import Control.Monad.Writer.Class
 import qualified Control.Monad.State as State
 
 import Data.Typeable
 
+import Language.Glyph.Logger.Class
 import Language.Glyph.Message
 
 import System.IO
@@ -27,6 +28,7 @@ newtype LoggerT m a
                        , Applicative
                        , Monad
                        , MonadIO
+                       , MonadTrans
                        , MonadFix
                        )
 
@@ -40,8 +42,8 @@ instance Exception LoggerException
 
 type S = Bool
 
-instance MonadIO m => MonadWriter Message (LoggerT m) where
-  tell x =
+instance MonadIO m => MonadLogger Message (LoggerT m) where
+  log x =
     case x of
       Warning w ->
         liftIO $ hPutStrLn stderr ("warning: " ++ show w)

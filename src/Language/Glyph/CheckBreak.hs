@@ -10,18 +10,18 @@ module Language.Glyph.CheckBreak
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
-import Control.Monad.Writer
 
 import Data.Generics
 
 import Language.Glyph.Location
+import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.Syntax
 
 checkBreak :: forall a b m.
              ( Data a
              , HasLocation a
-             , MonadWriter Message m
+             , MonadLogger Message m
              ) => ([Stmt a], b) -> m ([Stmt a], b)
 checkBreak (stmts, symtab) = do
   checkBreak' stmts
@@ -42,7 +42,7 @@ checkBreak (stmts, symtab) = do
         m = do
           illegalBreak <- ask
           when illegalBreak $
-            runReaderT (tellError IllegalBreak) (location x)
+            runReaderT (logError IllegalBreak) (location x)
     queryStmt _ = (return (), False)
     
     queryStmtView :: StmtView a -> (ReaderT Bool m (), Bool)

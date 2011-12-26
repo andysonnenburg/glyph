@@ -18,7 +18,6 @@ import Control.Exception hiding (finally)
 import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.State
-import Control.Monad.Writer
 
 import Data.Maybe
 import qualified Data.Text as Text
@@ -32,8 +31,9 @@ import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentSet as IdentSet
-import Language.Glyph.Location hiding (tellError)
+import Language.Glyph.Location hiding (logError)
 import qualified Language.Glyph.Location as Location
+import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.Monoid
 import Language.Glyph.Syntax
@@ -44,7 +44,7 @@ checkVar :: ( HasLocation a
            , HasName b
            , HasSort b
            , HasExtraSet b
-           , MonadWriter Message m
+           , MonadLogger Message m
            ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap b)
 checkVar (stmts, symtab) =
   (runReaderT' R { symtab, afterFinally } $
@@ -61,11 +61,14 @@ checkVar (stmts, symtab) =
     scopes = mempty
 
 data CheckVarException
-  = NotInitialized NameView deriving Typeable
+  = NotInitialized (Maybe NameView) deriving Typeable
 
 instance Show CheckVarException where
-  show (NotInitialized x) =
+  show (NotInitialized (Just x)) =
     "`" ++ Text.unpack x ++ "' may not have been initialized"
+  show (NotInitialized Nothing) =
+    "a variable may not have been initialized"
+  
 
 instance Exception CheckVarException
 
@@ -86,7 +89,7 @@ checkStmts :: ( HasName a
              , HasLocation b
              , MonadReader (R a) m
              , MonadState S m
-             , MonadWriter Message m
+             , MonadLogger Message m
              ) =>
              IdentSet ->
              [Stmt b] ->
@@ -108,7 +111,7 @@ checkStmt :: ( HasName a
             , HasLocation b
             , MonadReader (R a) m
             , MonadState S m
-            , MonadWriter Message m
+            , MonadLogger Message m
             ) =>
             IdentSet ->
             Stmt b ->
@@ -185,7 +188,7 @@ checkExpr :: ( HasName a
             , HasLocation b
             , MonadReader (R a) m
             , MonadState S m
-            , MonadWriter Message m
+            , MonadLogger Message m
             ) =>
             IdentSet ->
             Expr b ->
@@ -245,7 +248,7 @@ checkMaybeStmt :: ( HasName a
                  , HasLocation b
                  , MonadReader (R a) m
                  , MonadState S m
-                 , MonadWriter Message m
+                 , MonadLogger Message m
                  ) =>
                  IdentSet ->
                  Maybe (Stmt b) ->
@@ -256,7 +259,7 @@ checkBefore :: ( HasName a
               , HasSort a
               , HasExtraSet a
               , MonadReader (R a) m
-              , MonadWriter Message m
+              , MonadLogger Message m
               ) => IdentSet -> Ident -> WithLocationT m ()
 checkBefore before loc = do
   R {..} <- ask
@@ -264,11 +267,7 @@ checkBefore before loc = do
   let uninitialized = required \\ before
   unless (IdentSet.null uninitialized) $
     forM_ (IdentSet.toList uninitialized) $
-      tellError .
-      NotInitialized .
-      fromJust .
-      Name.name .
-      (symtab!)
+      logError . NotInitialized . Name.name . (symtab!)
 
 askBefore :: ( HasSort a
             , HasExtraSet a
@@ -339,12 +338,12 @@ instance MonadReader r m => MonadReader r (WithLocationT m) where
   ask = lift ask
   local f (WithLocationT m) = WithLocationT $ (mapReaderT . local) f m
 
-deriving instance MonadState s m => MonadState s (WithLocationT m)
+deriving instance MonadLogger w m => MonadLogger w (WithLocationT m)
 
-deriving instance MonadWriter w m => MonadWriter w (WithLocationT m)
+deriving instance MonadState s m => MonadState s (WithLocationT m)
 
 withLocation :: Monad m => Location -> WithLocationT m a -> WithLocationT m a
 withLocation x = WithLocationT . local (const x) . unWithLocationT
 
-tellError :: (Exception e, MonadWriter Message m) => e -> WithLocationT m ()
-tellError = WithLocationT . Location.tellError
+logError :: (Exception e, MonadLogger Message m) => e -> WithLocationT m ()
+logError = WithLocationT . Location.logError

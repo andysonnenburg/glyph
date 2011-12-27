@@ -11,9 +11,9 @@ module Language.Glyph.InferType
        ( inferType
        ) where
 
+import Control.Applicative
 import Control.Comonad
 import Control.Monad.Reader
-import Control.Monad.State
 import Control.Monad.Writer
 
 import Data.Graph
@@ -29,14 +29,12 @@ import Language.Glyph.HM.Syntax hiding (Exp (..), ExpView (..), Pat (..))
 import qualified Language.Glyph.HM.Syntax as HM
 import Language.Glyph.Ident.Internal
 import Language.Glyph.IdentMap (IdentMap, (!))
-import qualified Language.Glyph.IdentMap as IdentMap
-import Language.Glyph.IdentSet (IdentSet)
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.Monoid
 import Language.Glyph.Symtab
-import Language.Glyph.Symtab.Instances
+import Language.Glyph.Symtab.Instances ()
 import Language.Glyph.Syntax.Internal
 
 inferType :: ( Data a
@@ -80,12 +78,8 @@ stmtsToExp (s:ss) =
       in return' (varE x `asTypeOf'` e)
          `then'`
          stmtsToExp ss
-    FunDeclS (ident -> x) params stmts ->
-      letE [x]
-      (fix'
-       (absE (tupleP [x]) $
-        tupleE [funToExp params stmts]))
-      (stmtsToExp ss)
+    FunDeclS _name _params _stmts ->
+      stmtsToExp ss
     ReturnS expr -> do
       cc <- askIdent
       appE (varE cc) (maybe voidE exprToExp expr)
@@ -155,8 +149,8 @@ exprToExp e =
       exprToExp expr `asTypeOf'` boolE True
     VarE (ident -> x) ->
       varE x
-    FunE _ params stmts ->
-      funToExp params stmts
+    FunE x _params _stmts ->
+      varE x
     ApplyE expr exprs ->
       appE (exprToExp expr) (tupleE (map exprToExp exprs))
     AssignE (ident -> x) expr ->
@@ -185,22 +179,16 @@ blockToExp stmts =
   where
     varDecls = queryVarDecls stmts
     
-    funs e' = do
+    funs e2 = do
       callGraph <- queryFuns stmts
-      let scc = stronglyConnCompR callGraph
-          lets = map (map (\ (e, x, _) -> (x, e)) . flattenSCC) scc
-      letE [] (tupleE []) e'
-{-
-    funsToExp fs ss =
-      letE x
-      (fix'
-       (absE (tupleP x) $
-        tupleE e))
-      (stmtsToExp ss)
+      let scc' = stronglyConnCompR callGraph
+          lets = map (((,) <$> map snd3 <*> map fst3) . flattenSCC) scc'
+      foldr f e2 lets
       where
-        x = map fst fs
-        e = map snd fs
--}
+        f (x, e1) e2 = letE x (fix' (absE (tupleP x) (tupleE e1))) e2
+        fst3 (x, _, _) = x
+        snd3 (_, x, _) = x
+    
     queryVarDecls =
       everythingThisScope (.) $
       id `mkQ` queryStmt

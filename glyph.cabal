@@ -10,8 +10,6 @@ executable glyph
     Language.Glyph.Parse.Internal
     -- Language.Glyph.ASM.Lex.Internal
     -- Language.Glyph.ASM.Parse.Internal
-    Language.Glyph.HM.Lex.Internal
-    Language.Glyph.HM.Parse.Internal
   hs-source-dirs: src
   build-depends:
     base == 4.*,
@@ -27,4 +25,4 @@ executable glyph
     template-haskell,
     text
   build-tools: alex, happy
-  ghc-options: -Wall -O3
+  ghc-options: -Wall

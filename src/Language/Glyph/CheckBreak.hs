@@ -31,10 +31,10 @@ checkBreak (stmts, symtab) = do
     
     query :: Data c => c -> ReaderT Bool m ()
     query = everythingBut (>>)
-            ((return (), False)
-             `mkQ` queryStmt
-             `extQ` queryStmtView
-             `extQ` queryExprView)
+            ((return (), False) `mkQ`
+             queryStmt `extQ`
+             queryStmtView `extQ`
+             queryExprView)
     
     queryStmt :: Stmt a -> (ReaderT Bool m (), Bool)
     queryStmt x@(view -> BreakS) = (m, True)

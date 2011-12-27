@@ -34,8 +34,7 @@ import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.Monoid
 import Language.Glyph.Symtab
-import Language.Glyph.Symtab.Instances ()
-import Language.Glyph.Syntax.Internal
+import Language.Glyph.Syntax
 
 inferType :: ( Data a
             , HasLocation a
@@ -185,7 +184,7 @@ blockToExp stmts =
           lets = map (((,) <$> map snd3 <*> map fst3) . flattenSCC) scc'
       foldr f e2 lets
       where
-        f (x, e1) e2 = letE x (fix' (absE (tupleP x) (tupleE e1))) e2
+        f (x, e1) = letE x (fix' (absE (tupleP x) (tupleE e1)))
         fst3 (x, _, _) = x
         snd3 (_, x, _) = x
     

@@ -47,7 +47,7 @@ checkVar :: ( HasLocation a
            , MonadLogger Message m
            ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap b)
 checkVar (stmts, symtab) =
-  (runReaderT' R { symtab, afterFinally } $
+  (runReaderT' R { symtab, afterFinally } .
    runStateT' S { break, scope, scopes } $
    checkStmts before stmts) >>
   return (stmts, symtab)

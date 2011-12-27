@@ -31,7 +31,7 @@ infixr 9 :->:
 instance Show Type where
   show x =
     case x of
-      Var a -> "#" ++ (show . unIdent) a
+      Var a -> '#' : (show . unIdent) a
       a :->: b -> show a ++ " -> " ++ show b
       Int -> "int"
       Double -> "double"

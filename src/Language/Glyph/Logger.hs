@@ -18,6 +18,7 @@ import qualified Control.Monad.State as State
 import Data.Typeable
 
 import Language.Glyph.Logger.Class
+import Language.Glyph.Logger.Instances ()
 import Language.Glyph.Message
 
 import System.IO

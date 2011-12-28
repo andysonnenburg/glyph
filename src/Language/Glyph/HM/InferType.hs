@@ -79,20 +79,20 @@ inferExp = go
     w gamma (AbsE p e) = do
       (gamma', s1, tau1) <- pat p
       (s2, tau2) <- inferExp (apply s1 (deletePat p gamma) <> gamma') e
-      return (s2 `compose` s1, apply s2 tau1 :->: tau2)
+      return ((s2 `compose` s1) `without` tau1, apply s2 tau1 :->: tau2)
     w gamma (AppE e1 e2) = do
       (s1, tau1) <- inferExp gamma e1
       (s2, tau2) <- inferExp (apply s1 gamma) e2
       beta <- fresh
       s3 <- mgu (apply s2 tau1) (tau2 :->: beta)
-      return (s3 `compose` s2 `compose` s1, apply s3 beta)
+      return ((s3 `compose` s2 `compose` s1) `at` typeVars gamma, apply s3 beta)
     w gamma (LetE x e1 e2) = do
       beta <- replicateM (length x) fresh
       (s1, tau1) <- inferExp gamma e1
       s1 <- liftM (`compose` s1) $ mgu (apply s1 (Tuple beta)) tau1
       sigma <- mapM (generalize (apply s1 gamma) . apply s1) beta
       (s2, tau2) <- inferExp (apply s1 (deleteList x gamma) <> fromLists x sigma) e2
-      return (s2 `compose` s1, apply s2 tau2)
+      return ((s2 `compose` s1) `at` typeVars gamma, apply s2 tau2)
     w _gamma (BoolE _) =
       return (mempty, Bool)
     w _gamma VoidE =
@@ -172,6 +172,16 @@ deleteList x gamma = foldr delete gamma x
 
 fromLists :: [Ident] -> [TypeScheme] -> TypeEnvironment
 fromLists k v = fromList $ zip k v
+
+without :: Substitution -> Type -> Substitution
+Substitution s `without` tau = Substitution $ foldr delete s alpha
+  where
+    alpha = IdentSet.toList $ typeVars tau
+
+at :: Substitution -> IdentSet -> Substitution
+Substitution s `at` xs = Substitution $ intersection s xs'
+  where
+    xs' = IdentMap.fromList $ zip (IdentSet.toList xs) $ repeat ()
 
 class TypeVars a where
   typeVars :: a -> IdentSet

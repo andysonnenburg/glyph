@@ -2,6 +2,7 @@
     DeriveDataTypeable
   , FlexibleContexts
   , GeneralizedNewtypeDeriving
+  , TypeSynonymInstances
   , ViewPatterns #-}
 module Language.Glyph.HM.InferType
        ( Substitution
@@ -14,8 +15,8 @@ import Control.Monad.Error
 import Control.Monad.Reader
 
 import Data.Maybe
+import Data.Typeable
 
-import Language.Glyph.Generics
 import Language.Glyph.HM.Syntax
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap
@@ -36,6 +37,7 @@ inferType :: ( HasLocation a
 inferType = inferExp mempty
 
 type TypeEnvironment = IdentMap TypeScheme
+
 newtype Substitution =
   Substitution { unSubstitution :: IdentMap Type
                } deriving (Show, Monoid)
@@ -171,20 +173,26 @@ deleteList x gamma = foldr delete gamma x
 fromLists :: [Ident] -> [TypeScheme] -> TypeEnvironment
 fromLists k v = fromList $ zip k v
 
-typeVars :: (Show a, Data a) => a -> IdentSet
-typeVars =
-  everythingBut (<>)
-  ((mempty, False) `mkQ`
-   queryTypeScheme `extQ`
-   queryType)
-  where
-    queryTypeScheme (Forall alpha tau) =
-      (typeVars tau \\ IdentSet.fromList alpha, True)
-    
-    queryType (Type.Var alpha) =
-      (IdentSet.singleton alpha, False)
-    queryType _ =
-      (mempty, False)
+class TypeVars a where
+  typeVars :: a -> IdentSet
+
+instance TypeVars Type where
+  typeVars tau =
+    case tau of
+      Type.Var alpha -> IdentSet.singleton alpha
+      a :->: b -> typeVars a <> typeVars b
+      Int -> mempty
+      Double -> mempty
+      Bool -> mempty
+      Void -> mempty
+      Tuple xs -> mconcat . map typeVars $ xs
+      Cont a -> typeVars a
+
+instance TypeVars TypeEnvironment where
+  typeVars = mconcat . map typeVars . IdentMap.elems
+
+instance TypeVars TypeScheme where
+  typeVars (Forall alpha tau) = typeVars tau \\ IdentSet.fromList alpha
 
 {-
 normalize :: MonadLogger Message m => Constraints -> Subst -> m (Constraints, Subst)
@@ -270,30 +278,34 @@ mgu tau tau' =
       logError $ TypeError tau tau'
       return mempty
 
-apply :: Data a => Substitution -> a -> a
-apply = go
-  where
-    go s x = runReader (transform x) s
-    
-    transform :: MonadReader Substitution m => GenericM m
-    transform =
-      everywhereButM' (mkM' transformTypeScheme `extM'` transformType)
-    
-    transformTypeScheme (Forall alpha tau) = do
-      let f = Substitution . flip difference alpha' . unSubstitution
-      tau' <- local f $ transform tau
-      return (Forall alpha tau', True)
-      where
-        alpha' = fromList $ zip alpha (repeat ())
-    
-    transformType x@(Type.Var alpha) = do
-      tau <- asks $ fromMaybe x . IdentMap.lookup alpha . unSubstitution
-      return (tau, False)
-    transformType x =
-      return (x, False)
+class Apply a where
+  apply :: Substitution -> a -> a
+
+instance Apply Substitution where
+  apply s1 (Substitution s2) = Substitution $ apply s1 <$> s2
+
+instance Apply Type where
+  apply s x =
+    case x of
+      Type.Var alpha -> fromMaybe x $ IdentMap.lookup alpha (unSubstitution s)
+      a :->: b -> apply s a :->: apply s b
+      Int -> Int
+      Double -> Double
+      Bool -> Bool
+      Void -> Void
+      Tuple xs -> Tuple $ map (apply s) xs
+      Cont a -> Cont $ apply s a
+
+instance Apply TypeEnvironment where
+  apply s = fmap (apply s)
+
+instance Apply TypeScheme where
+  apply (Substitution s) (Forall alpha tau) = Forall alpha $ apply s' tau
+    where
+      s' = Substitution $ foldr delete s alpha
 
 compose :: Substitution -> Substitution -> Substitution
-s1 `compose` s2 = Substitution (apply s1 <$> unSubstitution s2) <> s1
+s1 `compose` s2 = apply s1 s2 <> s1
 
 mono :: Type -> TypeScheme
 mono = Forall mempty

@@ -16,7 +16,7 @@ import Control.Comonad
 import Control.Monad.Reader
 import Control.Monad.Writer
 
-import Data.Graph
+import Data.Graph hiding (scc)
 
 import Language.Glyph.Annotation
 import Language.Glyph.Annotation.CallSet
@@ -179,9 +179,9 @@ blockToExp stmts =
     varDecls = queryVarDecls stmts
     
     funs e2 = do
-      callGraph <- queryFuns stmts
-      let scc' = stronglyConnCompR callGraph
-          lets = map (((,) <$> map snd3 <*> map fst3) . flattenSCC) scc'
+      callGraph <- buildCallGraph stmts
+      let scc = stronglyConnCompR callGraph
+          lets = map (((,) <$> map snd3 <*> map fst3) . flattenSCC) scc
       foldr f e2 lets
       where
         f (x, e1) = letE x (fix' (absE (tupleP x) (tupleE e1)))
@@ -198,14 +198,14 @@ blockToExp stmts =
             e = undefined'
         queryStmt _ = id
     
-    queryFuns :: forall a b m.
-                ( Data a
-                , HasCallSet b
-                , MonadIdentSupply m
-                , MonadReader a m
-                , MonadSymtab b m 
-                ) => [Stmt a] -> m [(m (HM.Exp a), Ident, [Ident])]
-    queryFuns =
+    buildCallGraph :: forall a b m.
+                     ( Data a
+                     , HasCallSet b
+                     , MonadIdentSupply m
+                     , MonadReader a m
+                     , MonadSymtab b m 
+                     ) => [Stmt a] -> m [(m (HM.Exp a), Ident, [Ident])]
+    buildCallGraph =
       everythingThisScope append $
       return mempty `mkQ` queryStmt `extQ` queryExpr
       where

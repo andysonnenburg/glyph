@@ -87,11 +87,10 @@ inferExp = go
     w gamma (LetE x e1 e2) = do
       beta <- replicateM (length x) fresh
       (s1, tau1) <- inferExp gamma e1
-      s1' <- mgu (apply s1 (Tuple beta)) tau1
-      let s1'' = s1' `compose` s1
-      sigma <- mapM (generalize (apply s1'' gamma) . apply s1'') beta
-      (s2, tau2) <- inferExp (apply s1' (deleteList x gamma) <> fromLists x sigma) e2
-      return (s2 `compose` s1'' `compose` s1, apply s2 tau2)
+      s1 <- liftM (`compose` s1) $ mgu (apply s1 (Tuple beta)) tau1
+      sigma <- mapM (generalize (apply s1 gamma) . apply s1) beta
+      (s2, tau2) <- inferExp (apply s1 (deleteList x gamma) <> fromLists x sigma) e2
+      return (s2 `compose` s1, apply s2 tau2)
     w _gamma (BoolE _) =
       return (mempty, Bool)
     w _gamma VoidE =

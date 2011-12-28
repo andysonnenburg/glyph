@@ -5,12 +5,13 @@ module Language.Glyph.AddExtraSet
 
 import Control.Applicative
 
-import Data.Foldable (foldl')
 import Data.Graph hiding (scc, vertices)
 
-import Language.Glyph.Annotation.CallSet
+import Language.Glyph.Annotation.CallSet hiding (callSet)
+import qualified Language.Glyph.Annotation.CallSet as Annotation
 import Language.Glyph.Annotation.ExtraSet hiding (extraSet)
-import Language.Glyph.Annotation.FreeVars
+import Language.Glyph.Annotation.FreeVars hiding (freeVars)
+import qualified Language.Glyph.Annotation.FreeVars as Annotation
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Monoid
 import Language.Glyph.Ident
@@ -29,24 +30,27 @@ addExtraSet (stmts, symtab) =
           IdentMap.intersectionWith (flip withExtraSet) symtab extraSets <>
           (withExtraSet mempty <$> symtab))
   where
-    extraSets = foldl' f mempty . map (concatVertices . flattenSCC) $ scc
+    extraSets = foldl f mempty . map (mergeSCC . flattenSCC) $ scc
       where
-        f a (fvs, idents, cs) =
-          mconcat (a:map (`IdentMap.singleton` extraSet') idents)
-          where
-            extraSet' = fvs <> extraSet
-            extraSet = mconcat . map (a!) $ cs
+        f extraSets (freeVars, xs, callSet) =
+          mconcat (extraSets:map (flip IdentMap.singleton extraSet) xs)
+            where
+              extraSet = freeVars <> (mconcat $ map (extraSets!) callSet)
     scc = stronglyConnCompR callGraph
     callGraph = IdentMap.foldWithKey f [] symtab
       where
-        f k v xs
-          | Fun <- sort v = (freeVars v, k, IdentSet.toList (callSet v)):xs
-          | otherwise = xs
+        f sym info callSets
+          | Fun <- sort info =
+            (Annotation.freeVars info,
+             sym,
+             IdentSet.toList (Annotation.callSet info)):callSets
+          | otherwise =
+            callSets
 
-concatVertices :: [(IdentSet, Ident, [Ident])] -> (IdentSet, [Ident], [Ident])
-concatVertices vertices =
-  let (fvs, xs, cs) = foldr f (mempty, [], mempty) vertices
-  in (fvs, xs, IdentSet.toList $ cs \\ IdentSet.fromList xs)
+mergeSCC :: [(IdentSet, Ident, [Ident])] -> (IdentSet, [Ident], [Ident])
+mergeSCC vertices =
+  let (freeVars, xs, callSet) = foldr f (mempty, [], mempty) vertices
+  in (freeVars, xs, IdentSet.toList $ callSet \\ IdentSet.fromList xs)
   where
-    f (fvs, x, cs) (fvs', xs, cs') =
-      (fvs <> fvs', x:xs, IdentSet.fromList cs <> cs')
+    f (freeVars, x, callSet) (freeVars', xs, callSet') =
+      (freeVars <> freeVars', x:xs, IdentSet.fromList callSet <> callSet')

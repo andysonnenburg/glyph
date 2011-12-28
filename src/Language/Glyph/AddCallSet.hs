@@ -51,11 +51,11 @@ callSetsQ symtab =
 
 nestedFunsQ :: Data a => a -> IdentSet
 nestedFunsQ =
-  everythingButFuns (<>)
+  everything (<>)
   (const mempty `ext1Q` queryStmt `ext1Q` queryExpr)
   where
-    queryStmt (FunDeclS x _ _) =
-      IdentSet.singleton (ident x)
+    queryStmt (FunDeclS (ident -> x) _ _) =
+      IdentSet.singleton x
     queryStmt _ = 
       mempty
     

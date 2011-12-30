@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, PatternGuards #-}
+{-# LANGUAGE FlexibleContexts, PatternGuards, ScopedTypeVariables, ViewPatterns #-}
 module Language.Glyph.AddFreeVars
        ( addFreeVars
        ) where
@@ -19,33 +19,37 @@ addFreeVars :: ( Data a
               , HasSort b
               , Monad m
               ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap (Annotated FreeVars b))
-addFreeVars (stmts, symtab) = do
-  let symtab' = freeVarsQ symtab stmts
-  return (stmts,
-          IdentMap.intersectionWith (flip withFreeVars) symtab symtab' <>
-          (withFreeVars mempty <$> symtab))
+addFreeVars (stmts, symtab) =
+  return (stmts, unionWith' withFreeVars mempty symtab symtab')
+  where
+    symtab' = freeVarsQ symtab stmts
+    unionWith' f a m1 m2 = IdentMap.intersectionWith (flip f) m1 m2 <> (f a <$> m1)
 
-freeVarsQ :: (HasSort a, Data b) => IdentMap a -> b -> IdentMap IdentSet
+freeVarsQ :: forall a b.
+            ( HasSort a
+            , Data b
+            ) => IdentMap a -> [Stmt b] -> IdentMap IdentSet
 freeVarsQ symtab =
   everythingButFuns (<>)
-  (const mempty `ext1Q` queryStmt `ext1Q` queryExpr)
+  (mempty `mkQ` queryStmt `extQ` queryExpr)
   where
-    queryStmt (FunDeclS x params stmts) =
-      queryFun (ident x) params stmts
+    queryStmt :: StmtView b -> IdentMap IdentSet
+    queryStmt (FunDeclS (ident -> x) params stmts) =
+      queryFun x params stmts
     queryStmt _ =
       mempty
     
+    queryExpr :: ExprView b -> IdentMap IdentSet
     queryExpr (FunE x params stmts) =
       queryFun x params stmts
     queryExpr _ =
       mempty
     
-    queryFun x params stmts =
+    queryFun x (map ident -> params) stmts =
       freeVars <>
-      IdentMap.singleton x (nestedFreeVars <> vars \\ declaredVars)
+      IdentMap.singleton x (nestedFreeVars <> vars \\ varDecls)
       where
-        declaredVars = varDecls <> IdentSet.fromList (map ident params)
-        varDecls = varDeclsQ stmts
+        varDecls = varDeclsQ stmts <> IdentSet.fromList params
         vars = varsQ symtab stmts
         nestedFreeVars =
           mconcat .
@@ -55,11 +59,12 @@ freeVarsQ symtab =
         nestedFuns = funDeclsQ stmts
         freeVars = freeVarsQ symtab stmts
 
-varDeclsQ :: Data a => a -> IdentSet
+varDeclsQ :: forall a. Data a => [Stmt a] -> IdentSet
 varDeclsQ =
   everythingButFuns (<>)
-  (const mempty `ext1Q` queryStmt)
+  (mempty `mkQ` queryStmt)
   where
+    queryStmt :: StmtView a -> IdentSet
     queryStmt (VarDeclS x _) =
       IdentSet.singleton (ident x)
     queryStmt _ =
@@ -75,16 +80,18 @@ varsQ symtab =
     queryExpr _ =
       mempty
 
-funDeclsQ :: Data a => a -> IdentSet
+funDeclsQ :: forall a. Data a => [Stmt a] -> IdentSet
 funDeclsQ =
   everythingButFuns (<>)
-  (const mempty `ext1Q` queryStmt `ext1Q` queryExpr)
+  (mempty `mkQ` queryStmt `extQ` queryExpr)
   where
-    queryStmt (FunDeclS x _ _) =
-      IdentSet.singleton (ident x)
+    queryStmt :: StmtView a -> IdentSet
+    queryStmt (FunDeclS (ident -> x) _ _) =
+      IdentSet.singleton x
     queryStmt _ =
       mempty
     
+    queryExpr :: ExprView a -> IdentSet
     queryExpr (FunE x _ _) =
       IdentSet.singleton x
     queryExpr _ =

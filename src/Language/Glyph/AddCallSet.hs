@@ -1,4 +1,8 @@
-{-# LANGUAGE FlexibleContexts, PatternGuards, ViewPatterns #-}
+{-# LANGUAGE
+    FlexibleContexts
+  , PatternGuards
+  , ScopedTypeVariables
+  , ViewPatterns #-}
 module Language.Glyph.AddCallSet
        ( addCallSet
        ) where
@@ -19,56 +23,65 @@ addCallSet :: ( Data a
              , HasSort b
              , Monad m
              ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap (Annotated CallSet b))
-addCallSet (stmts, symtab) = do
-  let symtab' = callSetsQ symtab stmts
-  return (stmts,
-          IdentMap.intersectionWith (flip withCallSet) symtab symtab' <>
-          (withCallSet mempty <$> symtab))
-
-callSetsQ :: (HasSort a, Data b) => IdentMap a -> b -> IdentMap IdentSet
-callSetsQ symtab =
-  everythingButFuns (<>)
-  (const mempty `ext1Q` queryStmt `ext1Q` queryExpr)
+addCallSet (stmts, symtab) =
+  return (stmts, unionWith' withCallSet mempty symtab symtab')
   where
-    queryStmt (FunDeclS name _ stmts) =
-      queryFun (ident name) stmts
+    symtab' = callSetsQ symtab stmts
+    unionWith' f a m1 m2 = IdentMap.intersectionWith (flip f) m1 m2 <> (f a <$> m1)
+
+callSetsQ :: forall a b. (HasSort a, Data b) => IdentMap a -> [Stmt b] -> IdentMap IdentSet
+callSetsQ symtab = 
+  everythingButFuns (<>)
+  (mempty `mkQ` queryStmt `extQ` queryExpr)
+  where  
+    queryStmt :: StmtView b -> IdentMap IdentSet
+    queryStmt (FunDeclS (ident -> x) _ stmts) =
+      queryFun x stmts
     queryStmt _ =
       mempty
     
+    queryExpr :: ExprView b -> IdentMap IdentSet
     queryExpr (FunE x _ stmts) =
       queryFun x stmts
     queryExpr _ =
       mempty
     
     queryFun x stmts =
-      callSets <>
-      IdentMap.singleton x (nestedCallSet <> funVars \\ nestedFuns)
+      callSets <> IdentMap.singleton x callSet
       where
-        nestedFuns = nestedFunsQ stmts
+        callSet = nestedCallSet <> funVars \\ nestedFuns
+        nestedCallSet =
+          mconcat .
+          map (callSets!) .
+          IdentSet.toList $
+          nestedFuns
         funVars = funVarsQ symtab stmts
-        nestedCallSet = mconcat (IdentMap.elems callSets)
+        nestedFuns = nestedFunsQ stmts
         callSets = callSetsQ symtab stmts
 
-nestedFunsQ :: Data a => a -> IdentSet
+nestedFunsQ :: forall a. Data a => [Stmt a] -> IdentSet
 nestedFunsQ =
-  everything (<>)
-  (const mempty `ext1Q` queryStmt `ext1Q` queryExpr)
+  everythingButFuns (<>)
+  (mempty `mkQ` queryStmt `extQ` queryExpr)
   where
+    queryStmt :: StmtView a -> IdentSet
     queryStmt (FunDeclS (ident -> x) _ _) =
       IdentSet.singleton x
     queryStmt _ = 
       mempty
     
+    queryExpr :: ExprView a -> IdentSet
     queryExpr (FunE x _ _) =
       IdentSet.singleton x
     queryExpr _ =
       mempty
 
-funVarsQ :: (HasSort a, Data b) => IdentMap a -> b -> IdentSet
+funVarsQ :: forall a b. (HasSort a, Data b) => IdentMap a -> [Stmt b] -> IdentSet
 funVarsQ symtab =
   everythingButFuns (<>)
-  (const mempty `ext1Q` queryExpr)
+  (mempty `mkQ` queryExpr)
   where
+    queryExpr :: ExprView b -> IdentSet
     queryExpr (VarE (ident -> x)) | Fun <- sort (symtab!x) =
       IdentSet.singleton x
     queryExpr _ =

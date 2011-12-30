@@ -39,13 +39,13 @@ addExtraSet (stmts, symtab) =
     scc = stronglyConnCompR callGraph
     callGraph = IdentMap.foldWithKey f [] symtab
       where
-        f sym info callSets
+        f x info callGraph
           | Fun <- sort info =
-            (Annotation.freeVars info,
-             sym,
-             IdentSet.toList (Annotation.callSet info)):callSets
+            let freeVars = Annotation.freeVars info
+                callSet = IdentSet.toList $ Annotation.callSet info
+            in (freeVars, x, callSet):callGraph
           | otherwise =
-            callSets
+            callGraph
 
 mergeSCC :: [(IdentSet, Ident, [Ident])] -> (IdentSet, [Ident], [Ident])
 mergeSCC vertices =

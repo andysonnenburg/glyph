@@ -41,10 +41,10 @@ showTypes = go
       a' <- f a
       b' <- f b
       return $ a' ++ " -> " ++ b'
-    f Int = return "int"
-    f Double = return "double"
-    f Bool = return "bool"
-    f Void = return "void"
+    f Int = return "Int"
+    f Double = return "Double"
+    f Bool = return "Bool"
+    f Void = return "Void"
     f (Tuple xs) = do
       xs' <- mapM f xs
       return $ "(" ++ intercalate ", " xs' ++ ")"
@@ -53,7 +53,7 @@ showTypes = go
       (a, m) <- get
       case IdentMap.lookup x m of
         Nothing -> do
-          let v = a:[]
+          let v = ['#', a]
           put (succ a, IdentMap.insert x v m)
           return v
         Just s ->

@@ -23,6 +23,8 @@ module Language.Glyph.IdentMap
        , toList
        , union
        , unionWith
+       
+       , unionWith'
        ) where
 
 import Control.Arrow
@@ -120,3 +122,6 @@ union (IdentMap t1) (IdentMap t2) = IdentMap $ IntMap.union t1 t2
 
 unionWith :: (v -> v -> v) -> IdentMap v -> IdentMap v -> IdentMap v
 unionWith f (IdentMap t1) (IdentMap t2) = IdentMap $ IntMap.unionWith f t1 t2
+
+unionWith' :: (a -> b -> c) -> b -> IdentMap a -> IdentMap b -> IdentMap c
+unionWith' f a m1 m2 = intersectionWith f m1 m2 `union` (fmap (flip f a) m1)

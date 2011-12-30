@@ -3,8 +3,6 @@ module Language.Glyph.AddFreeVars
        ( addFreeVars
        ) where
 
-import Control.Applicative
-
 import Language.Glyph.Annotation.FreeVars hiding (freeVars)
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Generics
@@ -20,10 +18,9 @@ addFreeVars :: ( Data a
               , Monad m
               ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap (Annotated FreeVars b))
 addFreeVars (stmts, symtab) =
-  return (stmts, unionWith' withFreeVars mempty symtab symtab')
+  return (stmts, IdentMap.unionWith' (flip withFreeVars) mempty symtab symtab')
   where
     symtab' = freeVarsQ symtab stmts
-    unionWith' f a m1 m2 = IdentMap.intersectionWith (flip f) m1 m2 <> (f a <$> m1)
 
 freeVarsQ :: forall a b.
             ( HasSort a

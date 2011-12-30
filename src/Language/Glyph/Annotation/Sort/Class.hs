@@ -3,7 +3,7 @@ module Language.Glyph.Annotation.Sort.Class
        , HasSort (..)
        ) where
 
-data Sort = Var | Fun deriving Show
+data Sort = Var | Fun deriving (Show, Eq)
 
 class HasSort a where
   sort :: a -> Sort

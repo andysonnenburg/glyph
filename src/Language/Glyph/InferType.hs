@@ -52,10 +52,18 @@ toExp :: ( Data a
         , MonadSymtab b m
         ) => [Stmt a] -> m (HM.Exp a)
 toExp stmts =
-  runReaderT' (mconcat $ map extract stmts) $
+  runReaderT' (mconcat' $ map extract stmts) $
   runCont $ callCC $ do
     cc <- newIdent
     runWithIdentT' cc $ absE (varP cc) (blockToExp stmts)
+
+mconcat' :: Monoid a => [a] -> a
+mconcat' = go
+  where
+    go [] = mempty
+    go (x:xs) = f x xs
+    f x [] = x
+    f x (y:xs) = f (x <> y) xs
 
 stmtsToExp :: ( Data a
              , HasCallSet b
@@ -179,9 +187,10 @@ blockToExp stmts =
     varDecls e2 = 
       everythingThisScope (.) (id `mkQ` queryStmt) stmts e2
       where
-        queryStmt stmt@(view -> VarDeclS (ident -> x) _expr) = f
+        queryStmt stmt@(view -> VarDeclS (ident -> x) _expr) =
+          local' (extract stmt) . f 
           where
-            f e' = local' (extract stmt) $ appE (absE (tupleP [x]) e') (tupleE [e])
+            f e' = appE (absE (tupleP [x]) e') (tupleE [e])
             e = undefined'
         queryStmt _ = id
     

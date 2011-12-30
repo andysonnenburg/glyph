@@ -35,7 +35,7 @@ instance Semigroup Location where
     Location (min begin begin') (max end end')
 
 instance Monoid Location where
-  mempty = Location (Position 0 0) (Position 0 0)
+  mempty = Location (Position 1 1) (Position 1 1)
   mappend = (<>)
 
 class HasLocation a where

@@ -7,7 +7,7 @@ import Language.Glyph.Annotation.FreeVars hiding (freeVars)
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Generics
 import Language.Glyph.Monoid
-import Language.Glyph.IdentMap (IdentMap, (!))
+import Language.Glyph.IdentMap (IdentMap, (!), intersectionWith')
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentSet as IdentSet
@@ -16,9 +16,11 @@ import Language.Glyph.Syntax
 addFreeVars :: ( Data a
               , HasSort b
               , Monad m
-              ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap (Annotated FreeVars b))
+              ) =>
+              ([Stmt a], IdentMap b) ->
+              m ([Stmt a], IdentMap (Annotated FreeVars b))
 addFreeVars (stmts, symtab) =
-  return (stmts, IdentMap.unionWith' (flip withFreeVars) mempty symtab symtab')
+  return (stmts, intersectionWith' (flip withFreeVars) mempty symtab symtab')
   where
     symtab' = freeVarsQ symtab stmts
 

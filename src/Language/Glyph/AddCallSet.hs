@@ -11,7 +11,7 @@ import Language.Glyph.Annotation.CallSet hiding (callSet)
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Generics
 import Language.Glyph.Monoid
-import Language.Glyph.IdentMap (IdentMap, (!))
+import Language.Glyph.IdentMap (IdentMap, (!), intersectionWith')
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentSet as IdentSet
@@ -20,9 +20,11 @@ import Language.Glyph.Syntax
 addCallSet :: ( Data a
              , HasSort b
              , Monad m
-             ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap (Annotated CallSet b))
+             ) =>
+             ([Stmt a], IdentMap b) ->
+             m ([Stmt a], IdentMap (Annotated CallSet b))
 addCallSet (stmts, symtab) =
-  return (stmts, IdentMap.unionWith' (flip withCallSet) mempty symtab symtab')
+  return (stmts, intersectionWith' (flip withCallSet) mempty symtab symtab')
   where
     symtab' = callSetsQ symtab stmts
 

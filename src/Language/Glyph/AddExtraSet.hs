@@ -1,4 +1,3 @@
-{-# LANGUAGE PatternGuards #-}
 module Language.Glyph.AddExtraSet
        ( addExtraSet
        ) where
@@ -13,7 +12,7 @@ import qualified Language.Glyph.Annotation.FreeVars as Annotation
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Monoid
 import Language.Glyph.Ident
-import Language.Glyph.IdentMap (IdentMap, (!))
+import Language.Glyph.IdentMap (IdentMap, (!), intersectionWith')
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.IdentSet
 import qualified Language.Glyph.IdentSet as IdentSet
@@ -24,7 +23,7 @@ addExtraSet :: ( HasSort b
               , Monad m
               ) => (a, IdentMap b) -> m (a, IdentMap (Annotated ExtraSet b))
 addExtraSet (stmts, symtab) =
-  return (stmts, IdentMap.unionWith' (flip withExtraSet) mempty symtab symtab')
+  return (stmts, intersectionWith' (flip withExtraSet) mempty symtab symtab')
   where
     symtab' = foldl f mempty . map (mergeSCC . flattenSCC) $ scc
       where

@@ -61,9 +61,7 @@ mconcat' :: Monoid a => [a] -> a
 mconcat' = go
   where
     go [] = mempty
-    go (x:xs) = f x xs
-    f x [] = x
-    f x (y:xs) = f (x <> y) xs
+    go (x:xs) = foldl (<>) x xs
 
 stmtsToExp :: ( Data a
              , HasCallSet b

@@ -53,10 +53,10 @@ instance Show TypeException where
     case x of
       TypeError a b ->
         let (a', b') = showTypes (a, b)
-        in "couldn't match type `" ++ a' ++ "' and `" ++ b' ++ "'"
+        in "couldn't match type " ++ a' ++ " and " ++ b'
       OccursCheckFailed a b ->
         let (a', b') = showTypes (a, b)
-        in "occurs check failed for `" ++ a' ++ "' and `" ++ b' ++ "'"
+        in "occurs check failed for " ++ a' ++ " and " ++ b'
       StrMsgError s -> s
       NoMsgError -> "internal error"
 
@@ -78,9 +78,9 @@ inferExp = go
       let sigma = gamma!x
       tau <- instantiate sigma
       return (mempty, tau)
-    w gamma (AbsE x e) = do
-      (map (fmap mono) -> gamma', tau1) <- freshPat x
-      (s1, tau2) <- inferExp (deletePat x gamma <> fromList gamma') e
+    w gamma (AbsE p e) = do
+      (map (fmap mono) -> gamma', tau1) <- freshPat p
+      (s1, tau2) <- inferExp (deletePat p gamma <> fromList gamma') e
       return (s1 $\ tau1, (s1 $$ tau1) :->: tau2)
     w gamma (AppE e1 e2) = do
       (s1, tau1) <- inferExp gamma e1
@@ -88,14 +88,14 @@ inferExp = go
       beta <- fresh
       s3 <- mgu (s2 $$ tau1) (tau2 :->: beta)
       return ((s3 $. s2 $. s1) $| typeVars gamma, s3 $$ beta)
-    w gamma (LetE x e1 e2) = do
-      (gamma', beta) <- freshPat x
+    w gamma (LetE p e1 e2) = do
+      (gamma', beta) <- freshPat p
       (s1, tau1) <- inferExp gamma e1
       s1' <- liftM ($. s1) $ mgu (s1 $$ beta) tau1
       gamma'' <- forM gamma' $ \ (x, tau) -> do
         sigma <- generalize (s1' $$ gamma) (s1' $$ tau)
         return (x, sigma)
-      (s2, tau2) <- inferExp ((s1' $$ deletePat x gamma) <> fromList gamma'') e2
+      (s2, tau2) <- inferExp ((s1' $$ deletePat p gamma) <> fromList gamma'') e2
       return (s2 $. s1' $| typeVars gamma, s2 $$ tau2)
     w _gamma (BoolE _) =
       return (mempty, Bool)

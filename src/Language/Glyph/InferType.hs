@@ -64,6 +64,7 @@ mconcat' = go
     go (x:xs) = foldl (<>) x xs
 
 stmtsToExp :: ( Data a
+             , Monoid a
              , HasCallSet b
              , MonadIdentSupply m
              , MonadReader a m
@@ -162,6 +163,7 @@ exprToExp e =
       varE x `asTypeOf'` exprToExp expr
 
 funToExp :: ( Data a
+           , Monoid a
            , HasCallSet b
            , MonadIdentSupply m
            , MonadReader a m
@@ -174,12 +176,14 @@ funToExp (map ident -> x) stmts =
       absE (varP cc) (runWithIdentT' cc (blockToExp stmts))
 
 blockToExp :: ( Data a
+             , Monoid a
              , HasCallSet b
              , MonadIdentSupply m
              , MonadReader a m
              , MonadSymtab b m
              ) => [Stmt a] -> WithIdentT m (HM.Exp a)
 blockToExp stmts =
+  local' (mconcat' (map extract stmts)) .
   varDecls . funs . stmtsToExp $ stmts
   where
     varDecls e2 = 
@@ -204,6 +208,7 @@ blockToExp stmts =
     
     callGraphM :: forall a b m.
                  ( Data a
+                 , Monoid a
                  , HasCallSet b
                  , MonadIdentSupply m
                  , MonadReader a m

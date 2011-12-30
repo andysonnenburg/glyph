@@ -76,10 +76,10 @@ inferExp = go
       let sigma = gamma!x
       tau <- instantiate sigma
       return (mempty, tau)
-    w gamma (AbsE p e) = do
-      (gamma', s1, tau1) <- pat p
-      (s2, tau2) <- inferExp ((s1 $$ deletePat p gamma) <> gamma') e
-      return ((s2 $. s1) $\ tau1, (s2 $$ tau1) :->: tau2)
+    w gamma (AbsE x e) = do
+      (map (fmap mono) -> gamma', tau1) <- freshPat x
+      (s1, tau2) <- inferExp (deletePat x gamma <> fromList gamma') e
+      return (s1 $\ tau1, (s1 $$ tau1) :->: tau2)
     w gamma (AppE e1 e2) = do
       (s1, tau1) <- inferExp gamma e1
       (s2, tau2) <- inferExp (s1 $$ gamma) e2
@@ -87,12 +87,14 @@ inferExp = go
       s3 <- mgu (s2 $$ tau1) (tau2 :->: beta)
       return ((s3 $. s2 $. s1) $| typeVars gamma, s3 $$ beta)
     w gamma (LetE x e1 e2) = do
-      beta <- replicateM (length x) fresh
+      (gamma', beta) <- freshPat x
       (s1, tau1) <- inferExp gamma e1
-      s1 <- liftM ($. s1) $ mgu (s1 $$ Tuple beta) tau1
-      sigma <- mapM (generalize (s1 $$ gamma) . (s1 $$)) beta
-      (s2, tau2) <- inferExp ((s1 $$ deleteList x gamma) <> fromLists x sigma) e2
-      return (s2 $. s1 $| typeVars gamma, s2 $$ tau2)
+      s1' <- liftM ($. s1) $ mgu (s1 $$ beta) tau1
+      gamma'' <- forM gamma' $ \ (x, tau) -> do
+        sigma <- generalize (s1' $$ gamma) (s1' $$ tau)
+        return (x, sigma)
+      (s2, tau2) <- inferExp ((s1' $$ deletePat x gamma) <> fromList gamma'') e2
+      return (s2 $. s1' $| typeVars gamma, s2 $$ tau2)
     w _gamma (BoolE _) =
       return (mempty, Bool)
     w _gamma VoidE =
@@ -126,12 +128,14 @@ inferExp = go
       a <- fresh
       b <- fresh
       return (mempty, ((a :->: Cont b) :->: Cont a) :->: Cont a)
-    pat (VarP x) = do
+    freshPat (VarP x) = do
       beta <- fresh
-      return (singleton x (mono beta), mempty, beta)
-    pat (TupleP x) = do
-      beta <- replicateM (length x) fresh
-      return (fromLists x (map mono beta), mempty, Tuple beta)
+      return ([(x, beta)], beta)
+    freshPat (TupleP xs) = do
+      gamma <- forM xs $ \ x -> do
+        beta <- fresh
+        return (x, beta)
+      return (gamma, Tuple $ map snd gamma)
 
 tuple :: ( HasLocation a
         , MonadIdentSupply m
@@ -169,9 +173,6 @@ deletePat (TupleP x) = deleteList x
 
 deleteList :: [Ident] -> IdentMap a -> IdentMap a
 deleteList x gamma = foldr delete gamma x
-
-fromLists :: [Ident] -> [TypeScheme] -> TypeEnvironment
-fromLists k v = fromList $ zip k v
 
 ($\) :: Substitution -> Type -> Substitution
 Substitution s $\ tau = Substitution $ deleteList alpha s
@@ -256,17 +257,17 @@ uncons (x:xs) = Just (x, xs)
 mgu :: ( MonadReader Location m
       , MonadLogger Message m
       ) => Type -> Type -> m Substitution
-mgu tau tau' =
-  case (tau, tau') of
+mgu tau1 tau2 =
+  case (tau1, tau2) of
     (Type.Var a, Type.Var b) | a == b ->
       return mempty
     (Type.Var a, _) ->
-      if IdentSet.member a (typeVars tau')
-        then do logError $ OccursCheckFailed tau tau'
+      if IdentSet.member a (typeVars tau2)
+        then do logError $ OccursCheckFailed tau1 tau2
                 return mempty
-        else return $ Substitution $ singleton a tau'
+        else return $ Substitution $ singleton a tau2
     (_, Type.Var _) ->
-      mgu tau' tau
+      mgu tau2 tau1
     (x :->: x', y :->: y') -> do
       psi1 <- mgu x y
       psi2 <- mgu (psi1 $$ x') (psi1 $$ y')
@@ -284,10 +285,10 @@ mgu tau tau' =
             psi' <- mgu (psi $$ t) (psi $$ s)
             return $ psi' $. psi
       in foldM f mempty (zip xs ys)
-    (Cont tau, Cont tau') ->
-      mgu tau tau'
+    (Cont tau1', Cont tau2') ->
+      mgu tau1' tau2'
     _ -> do
-      logError $ TypeError tau tau'
+      logError $ TypeError tau1 tau2
       return mempty
 
 class Apply a where

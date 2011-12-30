@@ -37,7 +37,7 @@ data ExpView a
   = VarE Ident
   | AbsE Pat (Exp a)
   | AppE (Exp a) (Exp a)
-  | LetE [Ident] (Exp a) (Exp a)
+  | LetE Pat (Exp a) (Exp a)
     
   | BoolE Bool
   | VoidE
@@ -79,7 +79,7 @@ absE x e = do
   e' <- e
   return $ Exp a $ AbsE x e'
 
-letE :: MonadReader a m => [Ident] -> m (Exp a) -> m (Exp a) -> m (Exp a)
+letE :: MonadReader a m => Pat -> m (Exp a) -> m (Exp a) -> m (Exp a)
 letE x e e' = do
   a <- ask
   v <- liftM2 (LetE x) e e'

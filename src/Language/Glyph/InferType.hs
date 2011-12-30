@@ -176,21 +176,8 @@ blockToExp :: ( Data a
 blockToExp stmts =
   varDecls . funs . stmtsToExp $ stmts
   where
-    varDecls = queryVarDecls stmts
-    
-    funs e2 = do
-      callGraph <- buildCallGraph stmts
-      let scc = stronglyConnCompR callGraph
-          lets = map (((,) <$> map snd3 <*> map fst3) . flattenSCC) scc
-      foldr f e2 lets
-      where
-        f (x, e1) = letE x (fix' (absE (tupleP x) (tupleE e1)))
-        fst3 (x, _, _) = x
-        snd3 (_, x, _) = x
-    
-    queryVarDecls =
-      everythingThisScope (.) $
-      id `mkQ` queryStmt
+    varDecls e2 = 
+      everythingThisScope (.) (id `mkQ` queryStmt) stmts e2
       where
         queryStmt stmt@(view -> VarDeclS (ident -> x) _expr) = f
           where
@@ -198,14 +185,24 @@ blockToExp stmts =
             e = undefined'
         queryStmt _ = id
     
-    buildCallGraph :: forall a b m.
-                     ( Data a
-                     , HasCallSet b
-                     , MonadIdentSupply m
-                     , MonadReader a m
-                     , MonadSymtab b m 
-                     ) => [Stmt a] -> m [(m (HM.Exp a), Ident, [Ident])]
-    buildCallGraph =
+    funs e2 = do
+      callGraph <- callGraphM stmts
+      let scc = stronglyConnCompR callGraph
+          lets = map (((,) <$> map snd3 <*> map fst3) . flattenSCC) scc
+      foldr f e2 lets
+      where
+        f (x, e1) = letE (tupleP x) (fix' (absE (tupleP x) (tupleE e1)))
+        fst3 (x, _, _) = x
+        snd3 (_, x, _) = x
+    
+    callGraphM :: forall a b m.
+                 ( Data a
+                 , HasCallSet b
+                 , MonadIdentSupply m
+                 , MonadReader a m
+                 , MonadSymtab b m 
+                 ) => [Stmt a] -> m [(m (HM.Exp a), Ident, [Ident])]
+    callGraphM =
       everythingThisScope append $
       return mempty `mkQ` queryStmt `extQ` queryExpr
       where

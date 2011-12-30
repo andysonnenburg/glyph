@@ -52,9 +52,11 @@ instance Show TypeException where
   show x =
     case x of
       TypeError a b ->
-        "couldn't match type `" ++ show a ++ "' and `" ++ show b ++ "'"
+        let (a', b') = showTypes (a, b)
+        in "couldn't match type `" ++ a' ++ "' and `" ++ b' ++ "'"
       OccursCheckFailed a b ->
-        "occurs check failed for `" ++ show a ++ "' and `" ++ show b ++ "'"
+        let (a', b') = showTypes (a, b)
+        in "occurs check failed for `" ++ a' ++ "' and `" ++ b' ++ "'"
       StrMsgError s -> s
       NoMsgError -> "internal error"
 

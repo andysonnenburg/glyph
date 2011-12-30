@@ -35,7 +35,7 @@ addExtraSet (stmts, symtab) =
         f extraSets (freeVars, xs, callSet) =
           mconcat (extraSets:map (flip IdentMap.singleton extraSet) xs)
             where
-              extraSet = freeVars <> (mconcat $ map (extraSets!) callSet)
+              extraSet = freeVars <> mconcat (map (extraSets!) callSet)
     scc = stronglyConnCompR callGraph
     callGraph = IdentMap.foldWithKey f [] symtab
       where

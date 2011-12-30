@@ -78,21 +78,21 @@ inferExp = go
       return (mempty, tau)
     w gamma (AbsE p e) = do
       (gamma', s1, tau1) <- pat p
-      (s2, tau2) <- inferExp (apply s1 (deletePat p gamma) <> gamma') e
-      return ((s2 `compose` s1) `without` tau1, apply s2 tau1 :->: tau2)
+      (s2, tau2) <- inferExp ((s1 $$ deletePat p gamma) <> gamma') e
+      return ((s2 $. s1) $\ tau1, (s2 $$ tau1) :->: tau2)
     w gamma (AppE e1 e2) = do
       (s1, tau1) <- inferExp gamma e1
-      (s2, tau2) <- inferExp (apply s1 gamma) e2
+      (s2, tau2) <- inferExp (s1 $$ gamma) e2
       beta <- fresh
-      s3 <- mgu (apply s2 tau1) (tau2 :->: beta)
-      return ((s3 `compose` s2 `compose` s1) `at` typeVars gamma, apply s3 beta)
+      s3 <- mgu (s2 $$ tau1) (tau2 :->: beta)
+      return ((s3 $. s2 $. s1) $| typeVars gamma, s3 $$ beta)
     w gamma (LetE x e1 e2) = do
       beta <- replicateM (length x) fresh
       (s1, tau1) <- inferExp gamma e1
-      s1 <- liftM (`compose` s1) $ mgu (apply s1 (Tuple beta)) tau1
-      sigma <- mapM (generalize (apply s1 gamma) . apply s1) beta
-      (s2, tau2) <- inferExp (apply s1 (deleteList x gamma) <> fromLists x sigma) e2
-      return ((s2 `compose` s1) `at` typeVars gamma, apply s2 tau2)
+      s1 <- liftM ($. s1) $ mgu (s1 $$ Tuple beta) tau1
+      sigma <- mapM (generalize (s1 $$ gamma) . (s1 $$)) beta
+      (s2, tau2) <- inferExp ((s1 $$ deleteList x gamma) <> fromLists x sigma) e2
+      return (s2 $. s1 $| typeVars gamma, s2 $$ tau2)
     w _gamma (BoolE _) =
       return (mempty, Bool)
     w _gamma VoidE =
@@ -145,18 +145,18 @@ tuple gamma es = do
       return (mempty, [])
     go (x:xs) = do
       (s1, taus) <- go xs
-      (s2, tau) <- inferExp (apply s1 gamma) x
-      return (s2 `compose` s1, tau:taus)
+      (s2, tau) <- inferExp (s1 $$ gamma) x
+      return (s2 $. s1, tau:taus)
 
 fresh :: MonadIdentSupply m => m Type
 fresh = liftM Type.Var newIdent
 
 instantiate :: MonadIdentSupply m => TypeScheme -> m Type
-instantiate (Forall alpha tau) = do
-  (mconcat -> s) <- forM alpha $ \ alpha -> do
+instantiate (Forall alphas tau) = do
+  (mconcat -> s) <- forM alphas $ \ alpha -> do
     beta <- fresh
     return $ Substitution $ singleton alpha beta
-  return $ apply s tau
+  return $ s $$ tau
 
 generalize :: Monad m => TypeEnvironment -> Type -> m TypeScheme
 generalize gamma tau = return $ poly alpha tau
@@ -167,21 +167,23 @@ deletePat :: Pat -> TypeEnvironment -> TypeEnvironment
 deletePat (VarP x) = delete x
 deletePat (TupleP x) = deleteList x
 
-deleteList :: [Ident] -> TypeEnvironment -> TypeEnvironment
+deleteList :: [Ident] -> IdentMap a -> IdentMap a
 deleteList x gamma = foldr delete gamma x
 
 fromLists :: [Ident] -> [TypeScheme] -> TypeEnvironment
 fromLists k v = fromList $ zip k v
 
-without :: Substitution -> Type -> Substitution
-Substitution s `without` tau = Substitution $ foldr delete s alpha
+($\) :: Substitution -> Type -> Substitution
+Substitution s $\ tau = Substitution $ deleteList alpha s
   where
     alpha = IdentSet.toList $ typeVars tau
+infixl 4 $\
 
-at :: Substitution -> IdentSet -> Substitution
-Substitution s `at` xs = Substitution $ intersection s xs'
+($|) :: Substitution -> IdentSet -> Substitution
+Substitution s $| xs = Substitution $ intersection s xs'
   where
     xs' = IdentMap.fromList $ zip (IdentSet.toList xs) $ repeat ()
+infixl 4 $|
 
 class TypeVars a where
   typeVars :: a -> IdentSet
@@ -267,8 +269,8 @@ mgu tau tau' =
       mgu tau' tau
     (x :->: x', y :->: y') -> do
       psi1 <- mgu x y
-      psi2 <- mgu (apply psi1 x') (apply psi1 y')
-      return $ psi2 `compose` psi1
+      psi2 <- mgu (psi1 $$ x') (psi1 $$ y')
+      return $ psi2 $. psi1
     (Int, Int) ->
       return mempty
     (Double, Double) ->
@@ -279,8 +281,8 @@ mgu tau tau' =
       return mempty
     (Tuple xs, Tuple ys) | length xs == length ys ->
       let f psi (t, s) = do
-            psi' <- mgu (apply psi t) (apply psi s)
-            return $ psi' `compose` psi
+            psi' <- mgu (psi $$ t) (psi $$ s)
+            return $ psi' $. psi
       in foldM f mempty (zip xs ys)
     (Cont tau, Cont tau') ->
       mgu tau tau'
@@ -289,33 +291,38 @@ mgu tau tau' =
       return mempty
 
 class Apply a where
-  apply :: Substitution -> a -> a
+  ($$) :: Substitution -> a -> a
+infixr 0 $$
 
 instance Apply Substitution where
-  apply s1 (Substitution s2) = Substitution $ apply s1 <$> s2
+  s1 $$ Substitution s2 = Substitution $ (s1 $$) <$> s2
 
 instance Apply Type where
-  apply s x =
+  s $$ x =
     case x of
       Type.Var alpha -> fromMaybe x $ IdentMap.lookup alpha (unSubstitution s)
-      a :->: b -> apply s a :->: apply s b
+      a :->: b -> (s $$ a) :->: (s $$ b)
       Int -> Int
       Double -> Double
       Bool -> Bool
       Void -> Void
-      Tuple xs -> Tuple $ map (apply s) xs
-      Cont a -> Cont $ apply s a
+      Tuple xs -> Tuple $ s $$ xs
+      Cont a -> Cont $ s $$ a
 
 instance Apply TypeEnvironment where
-  apply s = fmap (apply s)
+  s $$ gamma = (s $$) <$> gamma
 
 instance Apply TypeScheme where
-  apply (Substitution s) (Forall alpha tau) = Forall alpha $ apply s' tau
+  Substitution s $$ Forall alpha tau = Forall alpha $ s' $$ tau
     where
-      s' = Substitution $ foldr delete s alpha
+      s' = Substitution $ deleteList alpha s
 
-compose :: Substitution -> Substitution -> Substitution
-s1 `compose` s2 = apply s1 s2 <> s1
+instance Apply a => Apply [a] where
+  s $$ xs = map (s $$) xs
+
+($.) :: Substitution -> Substitution -> Substitution
+s1 $. s2 = (s1 $$ s2) <> s1
+infixr 9 $.
 
 mono :: Type -> TypeScheme
 mono = Forall mempty

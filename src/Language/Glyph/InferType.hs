@@ -61,7 +61,7 @@ mconcat' :: Monoid a => [a] -> a
 mconcat' = go
   where
     go [] = mempty
-    go (x:xs) = foldl (<>) x xs
+    go (x : xs) = foldl (<>) x xs
 
 stmtsToExp :: ( Data a
              , Monoid a
@@ -72,7 +72,7 @@ stmtsToExp :: ( Data a
              ) => [Stmt a] -> WithIdentT m (HM.Exp a)
 stmtsToExp [] =
   return' undefined'
-stmtsToExp (s:ss) =
+stmtsToExp (s : ss) =
   local' (extract s) $
   case view s of
     ExprS expr ->
@@ -186,16 +186,16 @@ blockToExp stmts =
   local' (mconcat' (map extract stmts)) .
   varDecls . funs . stmtsToExp $ stmts
   where
-    varDecls e2 = 
+    varDecls e2 =
       everythingThisScope (.) (id `mkQ` queryStmt) stmts e2
       where
         queryStmt stmt@(view -> VarDeclS (ident -> x) _expr) =
-          local' (extract stmt) . f 
+          local' (extract stmt) . f
           where
             f e' = appE (absE (tupleP [x]) e') (tupleE [e])
             e = undefined'
         queryStmt _ = id
-    
+
     funs e2 = do
       callGraph <- callGraphM stmts
       let scc = stronglyConnCompR callGraph
@@ -205,40 +205,40 @@ blockToExp stmts =
         f (x, e1) = letE (tupleP x) (fix' (absE (tupleP x) (tupleE e1)))
         fst3 (x, _, _) = x
         snd3 (_, x, _) = x
-    
-    callGraphM :: forall a b m.
+
+    callGraphM :: forall a b m .
                  ( Data a
                  , Monoid a
                  , HasCallSet b
                  , MonadIdentSupply m
                  , MonadReader a m
-                 , MonadSymtab b m 
+                 , MonadSymtab b m
                  ) => [Stmt a] -> m [(m (HM.Exp a), Ident, [Ident])]
     callGraphM =
       everythingThisScope append $
       return mempty `mkQ` queryStmt `extQ` queryExpr
       where
         append = liftM2 (<>)
-        
+
         queryStmt :: Stmt a -> m [(m (HM.Exp a), Ident, [Ident])]
         queryStmt stmt@(view -> FunDeclS (ident -> x) params stmts) = do
           symtab <- askSymtab
-          return [(local' r e, x, IdentSet.toList . callSet $ symtab!x)]
+          return [(local' r e, x, IdentSet.toList . callSet $ symtab !x)]
           where
             r = extract stmt
             e = funToExp params stmts
         queryStmt _ =
           return mempty
-        
+
         queryExpr :: Expr a -> m [(m (HM.Exp a), Ident, [Ident])]
         queryExpr expr@(view -> FunE x params stmts) = do
           symtab <- askSymtab
-          return [(local' r e, x, IdentSet.toList . callSet $ symtab!x)]
+          return [(local' r e, x, IdentSet.toList . callSet $ symtab !x)]
           where
             r = extract expr
             e = funToExp params stmts
         queryExpr _ =
-          return mempty      
+          return mempty
 
 runReaderT' :: r -> ReaderT r m a -> m a
 runReaderT' = flip runReaderT

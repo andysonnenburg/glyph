@@ -6,5 +6,5 @@ module Language.Glyph.Message
 import Control.Exception
 
 data Message
-  = forall a. Show a => Warning a
-  | forall e. Exception e => Error e
+  = forall a . Show a => Warning a
+  | forall e . Exception e => Error e

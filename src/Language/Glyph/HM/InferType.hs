@@ -75,7 +75,7 @@ inferExp = go
     go gamma e =
       runReaderT (w gamma (view e)) (location e)
     w gamma (VarE x) = do
-      let sigma = gamma!x
+      let sigma = gamma !x
       tau <- instantiate sigma
       return (mempty, tau)
     w gamma (AbsE p e) = do
@@ -149,10 +149,10 @@ tuple gamma es = do
   where
     go [] =
       return (mempty, [])
-    go (x:xs) = do
+    go (x : xs) = do
       (s1, taus) <- go xs
       (s2, tau) <- inferExp (s1 $$ gamma) x
-      return (s2 $. s1, tau:taus)
+      return (s2 $. s1, tau : taus)
 
 fresh :: MonadIdentSupply m => m Type
 fresh = liftM Type.Var newIdent
@@ -217,14 +217,14 @@ normalize = go
       where
         c = mempty
         psi = phi
-    
+
     getD = gets $ \ (d, _, _) -> d
     putD d = modify $ \ (_, c, psi) -> (d, c, psi)
     modifyD f = modify $ \ (d, c, psi) -> (f d, c, psi)
     getC = gets $ \ (_, c, _) -> c
     getPsi = gets $ \ (_, _, psi) -> psi
     modifyPsi f = modify $ \ (d, c, psi) -> (d, c, f psi)
-    
+
     normalize' = do
       whileJust_ (liftM uncons getD) $ \ (p, d) -> do
         putD d

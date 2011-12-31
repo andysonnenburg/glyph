@@ -43,4 +43,3 @@ instance MonadReader r' m => MonadReader r' (SymtabT r m) where
 
 instance MonadIdentSupply m => MonadIdentSupply (SymtabT r m) where
   newIdent = lift newIdent
-  

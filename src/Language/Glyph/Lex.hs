@@ -25,4 +25,4 @@ lex = runParserT m
           return []
         _ -> do
           tokens <- m
-          return (token:tokens)
+          return (token : tokens)

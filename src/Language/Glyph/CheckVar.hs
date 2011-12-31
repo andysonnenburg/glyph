@@ -68,7 +68,7 @@ instance Show CheckVarException where
     "`" ++ Text.unpack x ++ "' may not have been initialized"
   show (NotInitialized Nothing) =
     "a variable may not have been initialized"
-  
+
 
 instance Exception CheckVarException
 
@@ -99,7 +99,7 @@ checkStmts = go
     go before stmts = do
       after <- foldM f before stmts
       S {..} <- get
-      let vars = IdentSet.unions (scope:scopes)
+      let vars = IdentSet.unions (scope : scopes)
       returnExpr $ IdentSet.intersection after vars
     f before stmt = do
       (after, _, _) <- checkStmt before stmt
@@ -119,66 +119,66 @@ checkStmt :: ( HasName a
 checkStmt before x = do
   R {..} <- ask
   S { scope, scopes } <- get
-  let vars =  IdentSet.unions (scope:scopes)
+  let vars = IdentSet.unions (scope : scopes)
   runWithLocationT' (location x) $ case view x of
     ExprS expr ->
       checkExpr before expr
-    
+
     VarDeclS (ident -> loc) Nothing -> do
       tellVar loc
       returnExpr before
-    
+
     VarDeclS (ident -> loc) (Just expr) -> do
       (afterBeta, _, _) <- checkExpr before expr
       tellVar loc
       returnExpr $ IdentSet.insert loc afterBeta
-    
+
     FunDeclS (ident -> loc) params stmts -> do
       let before' = IdentSet.singleton loc <>
                     IdentSet.fromList (map ident params) <>
-                    extraSet (symtab!loc)
+                    extraSet (symtab !loc)
       _ <- withScope $ do
         mapM_ (tellVar . ident) params
         checkStmts before' stmts
       returnExpr before
-    
+
     ReturnS Nothing ->
       returnExpr vars
-    
+
     ReturnS (Just expr) -> do
       _ <- checkExpr before expr
       returnExpr vars
-    
+
     IfThenElseS expr trueStmt falseStmt -> do
       (_, true, false) <- checkExpr before expr
       (afterTrue, _, _) <- checkStmt true trueStmt
       (afterFalse, _, _) <- checkMaybeStmt false falseStmt
       returnExpr $ IdentSet.intersection afterTrue afterFalse
-    
+
     WhileS expr stmt ->
       withLoop $ do
         (_, true, false) <- checkExpr before expr
         _ <- checkStmt true stmt
         break <- getBreak
         returnExpr $ IdentSet.intersection false break
-    
+
     BreakS -> do
       tellBeforeBreak before
       returnExpr vars
-    
+
     ContinueS ->
       returnExpr vars
-    
+
     ThrowS expr -> do
       _ <- checkExpr before expr
       returnExpr vars
-    
+
     TryFinallyS stmt finally -> do
       (afterFinally', _, _) <- checkMaybeStmt before finally
       (afterTry, _, _) <- withTryCatch afterFinally' $
         checkStmt before stmt
       returnExpr $ afterTry <> afterFinally'
-    
+
     BlockS stmts ->
       withScope $ checkStmts before stmts
 
@@ -196,48 +196,48 @@ checkExpr :: ( HasName a
 checkExpr before x = do
   R {..} <- ask
   S {..} <- get
-  let vars = IdentSet.unions (scope:scopes)
+  let vars = IdentSet.unions (scope : scopes)
   withLocation (location x) $ case view x of
     IntE _ ->
       returnExpr before
-    
+
     DoubleE _ ->
       returnExpr before
-    
+
     BoolE True ->
       returnBool before vars
-    
+
     BoolE False ->
       returnBool vars before
-    
+
     VoidE ->
       returnExpr before
-    
+
     NotE expr -> do
       (_, true, false) <- checkExpr before expr
       returnBool false true
-    
+
     VarE loc -> do
       checkBefore before (ident loc)
       returnExpr before
-    
+
     FunE loc params stmts -> do
       let before' = IdentSet.singleton loc <>
                     IdentSet.fromList (map ident params) <>
-                    extraSet (symtab!loc)
+                    extraSet (symtab !loc)
       _ <- withScope $ do
         mapM_ (tellVar . ident) params
         checkStmts before' stmts
       checkBefore before loc
       returnExpr before
-    
+
     ApplyE expr exprs -> do
       let f before' expr' = do
             (after', _, _) <- checkExpr before' expr'
             return after'
       after <- foldM f before (exprs ++ [expr])
       returnExpr after
-    
+
     AssignE loc expr -> do
       (afterBeta, _, _) <- checkExpr before expr
       returnExpr $ IdentSet.insert (ident loc) afterBeta
@@ -267,7 +267,7 @@ checkBefore before loc = do
   let uninitialized = required \\ before
   unless (IdentSet.null uninitialized) $
     forM_ (IdentSet.toList uninitialized) $
-      logError . NotInitialized . Name.name . (symtab!)
+      logError . NotInitialized . Name.name . (symtab !)
 
 askBefore :: ( HasSort a
             , HasExtraSet a
@@ -275,7 +275,7 @@ askBefore :: ( HasSort a
             ) => Ident -> m IdentSet
 askBefore x = do
   R {..} <- ask
-  let info = symtab!x
+  let info = symtab !x
   return $
     case sort info of
       Var -> IdentSet.singleton x
@@ -284,7 +284,7 @@ askBefore x = do
 withScope :: MonadState S m => m a -> m a
 withScope m = do
   s@S { scope, scopes } <- get
-  put s { scope = mempty, scopes = scope:scopes }
+  put s { scope = mempty, scopes = scope : scopes }
   a <- m
   modify (\ s' -> s' { scope, scopes })
   return a
@@ -298,7 +298,7 @@ withLoop :: (MonadReader (R a) m, MonadState S m) => m b -> m b
 withLoop m = do
   R {..} <- ask
   s@S {..} <- get
-  let vars = IdentSet.unions (scope:scopes)
+  let vars = IdentSet.unions (scope : scopes)
   put s { break = vars }
   a <- local (\ r -> r { afterFinally = mempty }) m
   put s

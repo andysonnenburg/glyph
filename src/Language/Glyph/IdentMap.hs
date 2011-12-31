@@ -23,7 +23,7 @@ module Language.Glyph.IdentMap
        , toList
        , union
        , unionWith
-       
+
        , intersectionWith'
        ) where
 

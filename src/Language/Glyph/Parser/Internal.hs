@@ -83,7 +83,7 @@ runParserT (ParserT m) buffer = evalStateT m initState
   where
     initState =
       S { position = Position 1 1
-        , buffer 
+        , buffer
         }
 
 get :: Monad m => ParserT m S

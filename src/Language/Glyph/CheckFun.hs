@@ -23,7 +23,7 @@ import Language.Glyph.Message
 import Language.Glyph.IdentMap (IdentMap, (!))
 import Language.Glyph.Syntax
 
-checkFun :: forall a b m.
+checkFun :: forall a b m .
            ( Data a
            , HasLocation a
            , HasSort b
@@ -34,10 +34,10 @@ checkFun (stmts, symtab) = do
   return (stmts, symtab)
   where
     checkFun' = everything (>>) (return () `mkQ` queryExpr)
-    
+
     queryExpr :: Expr a -> m ()
     queryExpr x@(view -> AssignE name _)
-      | Fun <- sort (symtab!ident name) =
+      | Fun <- sort (symtab !ident name) =
         runReaderT' $ logError $ AssignmentToFunDecl (view name)
       where
         runReaderT' m = runReaderT m (location x)
@@ -62,4 +62,3 @@ instance Exception CheckFunException
 instance Error CheckFunException where
   strMsg = StrMsgError
   noMsg = NoMsgError
-

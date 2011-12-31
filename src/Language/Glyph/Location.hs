@@ -22,7 +22,7 @@ import Language.Glyph.Message
 import Prelude hiding (log)
 
 data LocatedException
-  = forall e. Exception e => LocatedException Location e
+  = forall e . Exception e => LocatedException Location e
   | StrMsgError String
   | NoMsgError deriving Typeable
 

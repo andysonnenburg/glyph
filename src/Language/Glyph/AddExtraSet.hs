@@ -28,9 +28,9 @@ addExtraSet (stmts, symtab) =
     symtab' = foldl f mempty . map (mergeSCC . flattenSCC) $ scc
       where
         f extraSets (freeVars, xs, callSet) =
-          mconcat (extraSets:map (flip IdentMap.singleton extraSet) xs)
+          mconcat (extraSets : map (flip IdentMap.singleton extraSet) xs)
             where
-              extraSet = freeVars <> mconcat (map (extraSets!) callSet)
+              extraSet = freeVars <> mconcat (map (extraSets !) callSet)
     scc = stronglyConnCompR callGraph
     callGraph = map f . filter p . IdentMap.toList $ symtab
       where
@@ -50,4 +50,4 @@ mergeVertex :: (IdentSet, Ident, [Ident]) ->
               (IdentSet, [Ident], IdentSet) ->
               (IdentSet, [Ident], IdentSet)
 mergeVertex (freeVars, x, callSet) (freeVars', xs, callSet') =
-  (freeVars <> freeVars', x:xs, IdentSet.fromList callSet <> callSet')
+  (freeVars <> freeVars', x : xs, IdentSet.fromList callSet <> callSet')

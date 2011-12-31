@@ -38,13 +38,13 @@ data ExpView a
   | AbsE Pat (Exp a)
   | AppE (Exp a) (Exp a)
   | LetE Pat (Exp a) (Exp a)
-    
+
   | BoolE Bool
   | VoidE
   | IntE Int
   | DoubleE Double
   | TupleE [Exp a]
-    
+
   | Undefined
   | AsTypeOf
   | Fix

@@ -18,7 +18,7 @@ import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.Syntax
 
-checkContinue :: forall a b m.
+checkContinue :: forall a b m .
                 ( Data a
                 , HasLocation a
                 , MonadLogger Message m
@@ -28,14 +28,14 @@ checkContinue (stmts, symtab) = do
   return (stmts, symtab)
   where
     checkContinue' = runReaderT' . query
-    
+
     query :: Data c => c -> ReaderT Bool m ()
     query = everythingBut (>>)
             ((return (), False) `mkQ`
              queryStmt `extQ`
              queryStmtView `extQ`
              queryExprView)
-        
+
     queryStmt :: Stmt a -> (ReaderT Bool m (), Bool)
     queryStmt x@(view -> ContinueS) = (m, True)
       where
@@ -44,9 +44,9 @@ checkContinue (stmts, symtab) = do
           when illegalContinue $
             runReaderT (logError IllegalContinue) (location x)
     queryStmt _ = (return (), False)
-    
+
     queryStmtView :: StmtView a -> (ReaderT Bool m (), Bool)
-    queryStmtView (FunDeclS _ _ stmt) = (m, True) 
+    queryStmtView (FunDeclS _ _ stmt) = (m, True)
       where
         m = local (const True) $ query stmt
     queryStmtView (WhileS expr stmt) = (m, True)
@@ -60,13 +60,13 @@ checkContinue (stmts, symtab) = do
           query stmt1
           local (const True) $ query stmt2
     queryStmtView _ = (return (), False)
-    
+
     queryExprView :: ExprView a -> (ReaderT Bool m (), Bool)
     queryExprView (FunE _ _ stmt) =
       (local (const True) $ query stmt, True)
     queryExprView _ =
       (return (), False)
-    
+
     runReaderT' = flip runReaderT True
 
 data CheckContinueException

@@ -24,7 +24,7 @@ addFreeVars (stmts, symtab) =
   where
     symtab' = freeVarsQ symtab stmts
 
-freeVarsQ :: forall a b.
+freeVarsQ :: forall a b .
             ( HasSort a
             , Data b
             ) => IdentMap a -> [Stmt b] -> IdentMap IdentSet
@@ -37,13 +37,13 @@ freeVarsQ symtab =
       queryFun x params stmts
     queryStmt _ =
       mempty
-    
+
     queryExpr :: ExprView b -> IdentMap IdentSet
     queryExpr (FunE x params stmts) =
       queryFun x params stmts
     queryExpr _ =
       mempty
-    
+
     queryFun x (map ident -> params) stmts =
       freeVars <>
       IdentMap.singleton x (nestedFreeVars <> vars \\ varDecls)
@@ -52,13 +52,13 @@ freeVarsQ symtab =
         vars = varsQ symtab stmts
         nestedFreeVars =
           mconcat .
-          map (freeVars!) .
+          map (freeVars !) .
           IdentSet.toList $
           nestedFuns
         nestedFuns = funDeclsQ stmts
         freeVars = freeVarsQ symtab stmts
 
-varDeclsQ :: forall a. Data a => [Stmt a] -> IdentSet
+varDeclsQ :: forall a . Data a => [Stmt a] -> IdentSet
 varDeclsQ =
   everythingButFuns (<>)
   (mempty `mkQ` queryStmt)
@@ -73,13 +73,13 @@ varsQ :: (HasSort a, Data b) => IdentMap a -> b -> IdentSet
 varsQ symtab =
   everythingButFuns (<>)
   (mempty `mkQ` queryExpr)
-  where  
-    queryExpr x | Var <- sort (symtab!x) =
+  where
+    queryExpr x | Var <- sort (symtab !x) =
       IdentSet.singleton x
     queryExpr _ =
       mempty
 
-funDeclsQ :: forall a. Data a => [Stmt a] -> IdentSet
+funDeclsQ :: forall a . Data a => [Stmt a] -> IdentSet
 funDeclsQ =
   everythingButFuns (<>)
   (mempty `mkQ` queryStmt `extQ` queryExpr)
@@ -89,7 +89,7 @@ funDeclsQ =
       IdentSet.singleton x
     queryStmt _ =
       mempty
-    
+
     queryExpr :: ExprView a -> IdentSet
     queryExpr (FunE x _ _) =
       IdentSet.singleton x

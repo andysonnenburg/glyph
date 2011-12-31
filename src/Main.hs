@@ -42,7 +42,7 @@ main = do
   progName <- getProgName
   Glyph {} <- cmdArgs (glyph progName)
   glyph'
-    
+
 glyph' :: IO ()
 glyph' =
   ByteString.getContents >>=

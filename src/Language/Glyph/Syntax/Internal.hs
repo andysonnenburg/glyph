@@ -9,6 +9,7 @@ module Language.Glyph.Syntax.Internal
        , StmtView (..)
        , Expr (..)
        , ExprView (..)
+       , Lit (..)
        , Name (..)
        , NameView
        , ident
@@ -17,6 +18,7 @@ module Language.Glyph.Syntax.Internal
 import Control.Comonad
 
 import Data.Data
+import Data.Int
 import Data.Text (Text)
 
 import Language.Glyph.Ident
@@ -40,15 +42,18 @@ data StmtView a
 data Expr a = Expr a (ExprView a) deriving (Show, Typeable, Data, Functor)
 
 data ExprView a
-  = IntE Int
-  | DoubleE Double
-  | BoolE Bool
-  | VoidE
+  = LitE Lit
   | NotE (Expr a)
   | VarE Name
   | FunE Ident [Name] [Stmt a]
   | ApplyE (Expr a) [Expr a]
   | AssignE Name (Expr a) deriving (Show, Typeable, Data, Functor)
+
+data Lit
+  = IntL Int32
+  | DoubleL Double
+  | BoolL Bool
+  | VoidL deriving (Show, Typeable, Data)
 
 data Name = Name Ident Text deriving (Show, Typeable, Data)
 

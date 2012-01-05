@@ -44,7 +44,7 @@ mergeSCC :: [(IdentSet, Ident, [Ident])] -> (IdentSet, [Ident], [Ident])
 mergeSCC vertices =
   (freeVars, xs, IdentSet.toList $ callSet \\ IdentSet.fromList xs)
   where
-    (freeVars, xs, callSet) = foldr mergeVertex (mempty, mempty, mempty) vertices
+    (freeVars, xs, callSet) = foldr mergeVertex mempty vertices
 
 mergeVertex :: (IdentSet, Ident, [Ident]) ->
               (IdentSet, [Ident], IdentSet) ->

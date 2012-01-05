@@ -3,6 +3,7 @@ module Language.Glyph.Syntax
        , StmtView (..)
        , Expr
        , ExprView (..)
+       , Lit (..)
        , Name
        , NameView
        , view

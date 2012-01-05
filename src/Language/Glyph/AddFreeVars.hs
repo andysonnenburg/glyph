@@ -1,4 +1,8 @@
-{-# LANGUAGE FlexibleContexts, PatternGuards, ScopedTypeVariables, ViewPatterns #-}
+{-# LANGUAGE
+    FlexibleContexts
+  , PatternGuards
+  , ScopedTypeVariables
+  , ViewPatterns #-}
 module Language.Glyph.AddFreeVars
        ( addFreeVars
        ) where

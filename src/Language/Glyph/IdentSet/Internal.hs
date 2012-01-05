@@ -43,7 +43,7 @@ instance Data IdentSet where
     where
       name = $(return . TH.LitE . TH.StringL . showName $ ''IdentSet)
 
-infixl 9 \\
+infixl 9 \\ --
 (\\) :: IdentSet -> IdentSet -> IdentSet
 IdentSet m1 \\ IdentSet m2 = IdentSet $ IntSet.difference m1 m2
 

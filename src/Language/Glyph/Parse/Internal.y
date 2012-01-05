@@ -262,10 +262,10 @@ fun params stmts = do
   return $ FunE x params stmts
 
 bool :: Bool -> ExprView
-bool = BoolE
+bool = LitE . BoolL
 
 void :: ExprView
-void = VoidE
+void = LitE VoidL
 
 not' :: Expr -> ExprView
 not' = NotE

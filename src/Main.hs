@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, ScopedTypeVariables, ViewPatterns #-}
 module Main (main) where
 
 import Control.Monad.Error hiding (ErrorT (..))
@@ -18,12 +18,14 @@ import Language.Glyph.CheckReturn
 import Language.Glyph.CheckVar
 import Language.Glyph.Error
 import Language.Glyph.Ident
+import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.InferType
 import Language.Glyph.Logger
 import Language.Glyph.Monoid
 import Language.Glyph.Parse
 import Language.Glyph.Rename
+import Language.Glyph.Syntax
 
 import System.Console.CmdArgs hiding (args, name)
 import System.Environment
@@ -48,12 +50,12 @@ glyph' =
   ByteString.getContents >>=
   runLoggerT . runIdentSupplyT .
   (runErrorT . parse >=>
-   addEmptySymtab >=>
+   mkSymtab >=>
    checkBreak >=>
    checkContinue >=>
    checkReturn >=>
    rename >=>
-   addSymtab >=>
+   addIdents >=>
    addSort >=>
    checkFun >=>
    addFreeVars >=>
@@ -64,8 +66,12 @@ glyph' =
    inferType >=>
    const (return ()))
   where
-    addEmptySymtab stmts = return (stmts, ())
-    addSymtab (stmts, _) = return (stmts, idents stmts)
-    idents = everything (<>) (mempty `mkQ` q)
+    mkSymtab stmts = return (stmts, ())
+    addIdents (stmts, _) = return (stmts, idents stmts)
+    idents :: forall a . Data a => [Stmt a] -> IdentMap ()
+    idents = everything (<>) (mempty `mkQ` queryExpr `extQ` queryName)
       where
-        q n = IdentMap.singleton n ()
+        queryExpr :: ExprView a -> IdentMap ()
+        queryExpr (FunE x _ _) = IdentMap.singleton x ()
+        queryExpr _ = mempty
+        queryName (ident -> x) = IdentMap.singleton x ()

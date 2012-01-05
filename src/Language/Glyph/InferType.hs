@@ -88,17 +88,17 @@ stmtsToExp (s : ss) =
       stmtsToExp ss
     ReturnS expr -> do
       cc <- askIdent
-      appE (varE cc) (maybe voidE exprToExp expr)
+      appE (varE cc) (maybe (litE VoidL) exprToExp expr)
       `then'`
       stmtsToExp ss
     IfThenElseS expr stmt Nothing ->
-      return' (exprToExp expr `asTypeOf'` boolE True)
+      return' (exprToExp expr `asTypeOf'` litE (BoolL True))
       `then'`
       stmtsToExp [stmt]
       `then'`
       stmtsToExp ss
     IfThenElseS expr stmt1 (Just stmt2) ->
-      return' (exprToExp expr `asTypeOf'` boolE True)
+      return' (exprToExp expr `asTypeOf'` litE (BoolL True))
       `then'`
       stmtsToExp [stmt1]
       `then'`
@@ -106,7 +106,7 @@ stmtsToExp (s : ss) =
       `then'`
       stmtsToExp ss
     WhileS expr stmt ->
-      return' (exprToExp expr `asTypeOf'` boolE True)
+      return' (exprToExp expr `asTypeOf'` litE (BoolL True))
       `then'`
       stmtsToExp [stmt]
       `then'`
@@ -143,16 +143,10 @@ exprToExp :: ( Data a
 exprToExp e =
   local' (extract e) $
   case view e of
-    IntE int ->
-      intE int
-    DoubleE double ->
-      doubleE double
-    BoolE bool ->
-      boolE bool
-    VoidE ->
-      voidE
+    LitE lit ->
+      litE lit
     NotE expr ->
-      exprToExp expr `asTypeOf'` boolE True
+      exprToExp expr `asTypeOf'` litE (BoolL True)
     VarE (ident -> x) ->
       varE x
     FunE x _params _stmts ->

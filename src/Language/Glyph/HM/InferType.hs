@@ -97,14 +97,8 @@ inferExp = go
         return (x, sigma)
       (s2, tau2) <- inferExp ((s1' $$ deletePat p gamma) <> fromList gamma'') e2
       return (s2 $. s1' $| typeVars gamma, s2 $$ tau2)
-    w _gamma (BoolE _) =
-      return (mempty, Bool)
-    w _gamma VoidE =
-      return (mempty, Void)
-    w _gamma (IntE _) =
-      return (mempty, Int)
-    w _gamma (DoubleE _) =
-      return (mempty, Double)
+    w gamma (LitE lit) =
+      inferLit gamma lit
     w gamma (TupleE es) =
       tuple gamma es
     w _gamma Undefined = do
@@ -138,6 +132,16 @@ inferExp = go
         beta <- fresh
         return (x, beta)
       return (gamma, Tuple $ map snd gamma)
+
+inferLit :: Monad m => TypeEnvironment -> Lit -> m (Substitution, Type)
+inferLit _gamma x =
+  return
+  (mempty,
+   case x of
+     IntL _ -> Int
+     DoubleL _ -> Double
+     BoolL _ -> Bool
+     VoidL -> Void)
 
 tuple :: ( HasLocation a
         , MonadIdentSupply m
@@ -180,7 +184,7 @@ deleteList x gamma = foldr delete gamma x
 Substitution s $\ tau = Substitution $ deleteList alpha s
   where
     alpha = IdentSet.toList $ typeVars tau
-infixl 4 $\
+infixl 4 $\ --
 
 ($|) :: Substitution -> IdentSet -> Substitution
 Substitution s $| xs = Substitution $ intersection s xs'

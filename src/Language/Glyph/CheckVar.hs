@@ -198,19 +198,13 @@ checkExpr before x = do
   S {..} <- get
   let vars = IdentSet.unions (scope : scopes)
   withLocation (location x) $ case view x of
-    IntE _ ->
-      returnExpr before
-
-    DoubleE _ ->
-      returnExpr before
-
-    BoolE True ->
+    LitE (BoolL True) ->
       returnBool before vars
 
-    BoolE False ->
+    LitE (BoolL False) ->
       returnBool vars before
 
-    VoidE ->
+    LitE _lit ->
       returnExpr before
 
     NotE expr -> do

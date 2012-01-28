@@ -35,26 +35,27 @@ import Language.Glyph.Message
 import Language.Glyph.Monoid
 import Language.Glyph.Symtab
 import Language.Glyph.Syntax
+import Language.Glyph.UniqueSupply
 
 inferType :: ( Data a
             , HasLocation a
             , Monoid a
             , HasCallSet b
-            , MonadIdentSupply m
             , MonadLogger Message m
+            , MonadUniqueSupply m
             ) => ([Stmt a], IdentMap b) -> m (Substitution, Type)
 inferType (stmts, symtab) = HM.inferType =<< runSymtabT (toExp stmts) symtab
 
 toExp :: ( Data a
         , Monoid a
         , HasCallSet b
-        , MonadIdentSupply m
         , MonadSymtab b m
+        , MonadUniqueSupply m
         ) => [Stmt a] -> m (HM.Exp a)
 toExp stmts =
   runReaderT' (mconcat' $ map extract stmts) $
   runCont $ callCC $ do
-    cc <- newIdent
+    cc <- freshIdent
     runWithIdentT' cc $ absE (varP cc) (blockToExp stmts)
 
 mconcat' :: Monoid a => [a] -> a
@@ -66,9 +67,9 @@ mconcat' = go
 stmtsToExp :: ( Data a
              , Monoid a
              , HasCallSet b
-             , MonadIdentSupply m
              , MonadReader a m
              , MonadSymtab b m
+             , MonadUniqueSupply m
              ) => [Stmt a] -> WithIdentT m (HM.Exp a)
 stmtsToExp [] =
   return' undefined'
@@ -136,9 +137,9 @@ stmtsToExp (s : ss) =
 
 exprToExp :: ( Data a
             , HasCallSet b
-            , MonadIdentSupply m
             , MonadReader a m
             , MonadSymtab b m
+            , MonadUniqueSupply m
             ) => Expr a -> WithIdentT m (HM.Exp a)
 exprToExp e =
   local' (extract e) $
@@ -159,22 +160,22 @@ exprToExp e =
 funToExp :: ( Data a
            , Monoid a
            , HasCallSet b
-           , MonadIdentSupply m
            , MonadReader a m
            , MonadSymtab b m
+           , MonadUniqueSupply m
            ) => [Name] -> [Stmt a] -> m (HM.Exp a)
 funToExp (map ident -> x) stmts =
   absE (tupleP x) $
     runCont $ callCC $ do
-      cc <- newIdent
+      cc <- freshIdent
       absE (varP cc) (runWithIdentT' cc (blockToExp stmts))
 
 blockToExp :: ( Data a
              , Monoid a
              , HasCallSet b
-             , MonadIdentSupply m
              , MonadReader a m
              , MonadSymtab b m
+             , MonadUniqueSupply m
              ) => [Stmt a] -> WithIdentT m (HM.Exp a)
 blockToExp stmts =
   local' (mconcat' (map extract stmts)) .
@@ -204,9 +205,9 @@ blockToExp stmts =
                  ( Data a
                  , Monoid a
                  , HasCallSet b
-                 , MonadIdentSupply m
                  , MonadReader a m
                  , MonadSymtab b m
+                 , MonadUniqueSupply m
                  ) => [Stmt a] -> m [(m (HM.Exp a), Ident, [Ident])]
     callGraphM =
       everythingThisScope append $
@@ -215,22 +216,22 @@ blockToExp stmts =
         append = liftM2 (<>)
 
         queryStmt :: Stmt a -> m [(m (HM.Exp a), Ident, [Ident])]
-        queryStmt stmt@(view -> FunDeclS (ident -> x) params stmts) = do
+        queryStmt stmt'@(view -> FunDeclS (ident -> x) params stmts) = do
           symtab <- askSymtab
           return [(local' r e, x, IdentSet.toList . callSet $ symtab !x)]
           where
-            r = extract stmt
+            r = extract stmt'
             e = funToExp params stmts
         queryStmt _ =
           return mempty
 
         queryExpr :: Expr a -> m [(m (HM.Exp a), Ident, [Ident])]
-        queryExpr expr@(view -> FunE x params stmts) = do
+        queryExpr expr@(view -> FunE x params stmts') = do
           symtab <- askSymtab
           return [(local' r e, x, IdentSet.toList . callSet $ symtab !x)]
           where
             r = extract expr
-            e = funToExp params stmts
+            e = funToExp params stmts'
         queryExpr _ =
           return mempty
 
@@ -258,8 +259,8 @@ instance MonadReader r m => MonadReader r (WithIdentT m) where
 
 deriving instance MonadWriter w m => MonadWriter w (WithIdentT m)
 
-instance MonadIdentSupply m => MonadIdentSupply (WithIdentT m) where
-  newIdent = lift newIdent
+instance MonadUniqueSupply m => MonadUniqueSupply (WithIdentT m) where
+  freshUnique = lift freshUnique
 
 instance MonadSymtab r m => MonadSymtab r (WithIdentT m) where
   askSymtab = lift askSymtab

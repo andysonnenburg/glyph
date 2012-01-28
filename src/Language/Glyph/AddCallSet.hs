@@ -28,7 +28,10 @@ addCallSet (stmts, symtab) =
   where
     symtab' = callSetsQ symtab stmts
 
-callSetsQ :: forall a b . (HasSort a, Data b) => IdentMap a -> [Stmt b] -> IdentMap IdentSet
+callSetsQ :: forall a b .
+             ( HasSort a
+             , Data b
+             ) => IdentMap a -> [Stmt b] -> IdentMap IdentSet
 callSetsQ symtab =
   everythingButFuns (<>)
   (mempty `mkQ` queryStmt `extQ` queryExpr)
@@ -75,7 +78,10 @@ nestedFunsQ =
     queryExpr _ =
       mempty
 
-funVarsQ :: forall a b . (HasSort a, Data b) => IdentMap a -> [Stmt b] -> IdentSet
+funVarsQ :: forall a b .
+            ( HasSort a
+            , Data b
+            ) => IdentMap a -> [Stmt b] -> IdentSet
 funVarsQ symtab =
   everythingButFuns (<>)
   (mempty `mkQ` queryExpr)

@@ -1,7 +1,10 @@
 {-# LANGUAGE
     DeriveDataTypeable
+  , FlexibleInstances
   , GeneralizedNewtypeDeriving
-  , MultiParamTypeClasses #-}
+  , MultiParamTypeClasses
+  , StandaloneDeriving
+  , UndecidableInstances #-}
 module Language.Glyph.Logger
        ( module Language.Glyph.Logger.Class
        , LoggerT
@@ -11,6 +14,7 @@ module Language.Glyph.Logger
 
 import Control.Applicative
 import Control.Exception
+import Control.Monad.Error hiding (liftIO)
 import qualified Control.Monad.Trans as Trans
 import Control.Monad.State hiding (liftIO, put)
 import qualified Control.Monad.State as State
@@ -20,6 +24,7 @@ import Data.Typeable
 import Language.Glyph.Logger.Class
 import Language.Glyph.Logger.Instances ()
 import Language.Glyph.Message
+import Language.Glyph.UniqueSupply
 
 import System.IO
 
@@ -32,6 +37,8 @@ newtype LoggerT m a
                        , MonadTrans
                        , MonadFix
                        )
+
+deriving instance MonadError e m => MonadError e (LoggerT m)
 
 data LoggerException
   = PreviousErrors deriving Typeable
@@ -63,3 +70,6 @@ put = LoggerT . State.put
 
 liftIO :: MonadIO m => IO a -> LoggerT m a
 liftIO = LoggerT . Trans.liftIO
+
+instance MonadUniqueSupply m => MonadUniqueSupply (LoggerT m) where
+  freshUnique = lift freshUnique

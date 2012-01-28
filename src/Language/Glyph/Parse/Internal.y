@@ -15,13 +15,14 @@ import Data.Semigroup
 import Data.Text (Text)
 
 import Language.Glyph.Annotation.Location
-import Language.Glyph.Ident.Internal
+import Language.Glyph.Ident
 import Language.Glyph.Lex.Internal
 import Language.Glyph.Parser
 import Language.Glyph.Syntax.Internal hiding (Expr, ExprView, Name, Stmt, StmtView)
 import qualified Language.Glyph.Syntax.Internal as Syntax
 import Language.Glyph.Token hiding (False, Fun, Return, True, Var)
 import qualified Language.Glyph.Token as Token
+import Language.Glyph.UniqueSupply
 
 import Prelude hiding (break, lex)
 }
@@ -57,7 +58,7 @@ FINALLY { (extract -> Token.Finally) }
 
 %name stmts
 
-%monad { (MonadIdentSupply m, MonadError ParseException m) } { ParserT m } { >>= } { return }
+%monad { (MonadError ParseException m, MonadUniqueSupply m) } { ParserT m } { >>= } { return }
 
 %lexer { lexer } { (extract -> EOF) }
 
@@ -208,9 +209,9 @@ type Expr = Syntax.Expr Location
 type ExprView = Syntax.ExprView Location
 type Name = Syntax.Name
 
-parse :: ( MonadIdentSupply m
-        , MonadError ParseException m
-        ) => ParserT m [Stmt]
+parse :: ( MonadError ParseException m
+         ,  MonadUniqueSupply m
+         ) => ParserT m [Stmt]
 parse = stmts
 
 lexer :: MonadError ParseException m => (Located Token -> ParserT m a) -> ParserT m a
@@ -256,9 +257,9 @@ throw = ThrowS
 var :: Name -> ExprView
 var = VarE
 
-fun :: MonadIdentSupply m => [Name] -> [Stmt] -> m ExprView
+fun :: MonadUniqueSupply m => [Name] -> [Stmt] -> m ExprView
 fun params stmts = do
-  x <- newIdent
+  x <- freshIdent
   return $ FunE x params stmts
 
 bool :: Bool -> ExprView
@@ -287,12 +288,12 @@ stmt a b x = Syntax.Stmt (location a <> location b) x
 expr :: (HasLocation a, HasLocation b) => a -> b -> ExprView -> Expr
 expr a b x = Syntax.Expr (location a <> location b) x
 
-newName :: MonadIdentSupply m => NameView -> m Name
-newName x = liftM f newIdent
+newName :: MonadUniqueSupply m => NameView -> m Name
+newName x = liftM f freshIdent
   where
     f a = Syntax.Name a x
 
-newName' :: MonadIdentSupply m => Located Token -> m Name
+newName' :: MonadUniqueSupply m => Located Token -> m Name
 newName' = newName . name . extract
 
 extract' :: Located a -> a

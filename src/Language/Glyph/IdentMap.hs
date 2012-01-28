@@ -38,6 +38,7 @@ import Data.Traversable
 
 import Language.Glyph.Ident.Internal
 import Language.Glyph.IdentSet.Internal (IdentSet (..))
+import Language.Glyph.Unique.Internal
 import Language.Haskell.TH.Syntax (showName)
 import Language.Haskell.TH as TH
 
@@ -62,10 +63,10 @@ instance Data a => Data (IdentMap a) where
       name = $(return . TH.LitE . TH.StringL . showName $ ''IdentMap)
 
 (!) :: IdentMap v -> Ident -> v
-IdentMap m ! Ident k = m IntMap.! k
+IdentMap m ! Ident k = m IntMap.! uniqueToInt k
 
 delete :: Ident -> IdentMap a -> IdentMap a
-delete (Ident k) (IdentMap t) = IdentMap $ IntMap.delete k t
+delete (Ident k) (IdentMap t) = IdentMap $ IntMap.delete (uniqueToInt k) t
 
 difference :: IdentMap a -> IdentMap b -> IdentMap a
 difference (IdentMap t1) (IdentMap t2) = IdentMap $ IntMap.difference t1 t2
@@ -78,19 +79,19 @@ empty = IdentMap IntMap.empty
 
 filterWithKey :: (Ident -> a -> Bool) -> IdentMap a -> IdentMap a
 filterWithKey predicate (IdentMap t) =
-  IdentMap $ IntMap.filterWithKey (predicate . Ident) t
+  IdentMap $ IntMap.filterWithKey (predicate . Ident . intToUnique) t
 
 findWithDefault :: a -> Ident -> IdentMap a -> a
-findWithDefault def (Ident k) (IdentMap m) = IntMap.findWithDefault def k m
+findWithDefault def (Ident k) (IdentMap m) = IntMap.findWithDefault def (uniqueToInt k) m
 
 foldWithKey :: (Ident -> a -> b -> b) -> b -> IdentMap a -> b
-foldWithKey f z (IdentMap t) = IntMap.foldWithKey (f . Ident) z t
+foldWithKey f z (IdentMap t) = IntMap.foldWithKey (f . Ident . intToUnique) z t
 
 fromList :: [(Ident, v)] -> IdentMap v
-fromList = IdentMap . IntMap.fromList . map (\ (Ident k, v) -> (k, v))
+fromList = IdentMap . IntMap.fromList . map (\ (Ident k, v) -> (uniqueToInt k, v))
 
 insert :: Ident -> v -> IdentMap v -> IdentMap v
-insert (Ident k) x (IdentMap t) = IdentMap $ IntMap.insert k x t
+insert (Ident k) x (IdentMap t) = IdentMap $ IntMap.insert (uniqueToInt k) x t
 
 intersection :: IdentMap a -> IdentMap b -> IdentMap a
 intersection (IdentMap t1) (IdentMap t2) = IdentMap $ IntMap.intersection t1 t2
@@ -100,22 +101,22 @@ intersectionWith f (IdentMap t1) (IdentMap t2) =
   IdentMap $ IntMap.intersectionWith f t1 t2
 
 keysSet :: IdentMap a -> IdentSet
-keysSet = IdentSet . IntMap.keysSet . unIdentMap
+keysSet = undefined -- TODO IdentSet . IntMap.keysSet . unIdentMap
 
 lookup :: Ident -> IdentMap v -> Maybe v
-lookup (Ident k) (IdentMap t) = IntMap.lookup k t
+lookup (Ident k) (IdentMap t) = IntMap.lookup (uniqueToInt k) t
 
 mapWithKey :: (Ident -> a -> b) -> IdentMap a -> IdentMap b
-mapWithKey f (IdentMap t) = IdentMap $ IntMap.mapWithKey (f . Ident) t
+mapWithKey f (IdentMap t) = IdentMap $ IntMap.mapWithKey (f . Ident . intToUnique) t
 
 null :: IdentMap a -> Bool
 null (IdentMap t) = IntMap.null t
 
 singleton :: Ident -> v -> IdentMap v
-singleton (Ident k) x = IdentMap $ IntMap.singleton k x
+singleton (Ident k) x = IdentMap $ IntMap.singleton (uniqueToInt k) x
 
 toList :: IdentMap v -> [(Ident, v)]
-toList = map (first Ident) . IntMap.toList . unIdentMap
+toList = map (first $ Ident . intToUnique) . IntMap.toList . unIdentMap
 
 union :: IdentMap v -> IdentMap v -> IdentMap v
 union (IdentMap t1) (IdentMap t2) = IdentMap $ IntMap.union t1 t2

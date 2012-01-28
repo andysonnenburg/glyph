@@ -60,26 +60,26 @@ rename = go
       withScope $ do
         runReaderT (mapM_ defineName params) (location x)
         stmts' <- rename' stmts
-        return $ x `updateView` FunDeclS name params stmts'
+        return $ x `update` FunDeclS name params stmts'
     transformStmt x@(view -> BlockS stmts) =
       withScope $ do
         stmts' <- rename' stmts
-        return $ x `updateView` BlockS stmts'
+        return $ x `update` BlockS stmts'
     transformStmt x =
       return x
 
     transformExpr :: Expr a -> StateT S m (Expr a)
     transformExpr x@(view -> VarE name) = do
       name' <- runReaderT (updateName name) (location x)
-      return $ x `updateView` VarE name'
+      return $ x `update` VarE name'
     transformExpr x@(view -> FunE a params stmts) =
       withScope $ do
         runReaderT (mapM_ defineName params) (location x)
         stmts' <- rename' stmts
-        return $ x `updateView` FunE a params stmts'
+        return $ x `update` FunE a params stmts'
     transformExpr x@(view -> AssignE name expr) = do
       name' <- runReaderT (updateName name) (location x)
-      return $ x `updateView` AssignE name' expr
+      return $ x `update` AssignE name' expr
     transformExpr x =
       return x
 

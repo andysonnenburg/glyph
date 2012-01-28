@@ -17,6 +17,7 @@ import Language.Glyph.CheckFun
 import Language.Glyph.CheckReturn
 import Language.Glyph.CheckVar
 import Language.Glyph.Error
+import Language.Glyph.Hoopl (toGraph, showGraph')
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
@@ -26,6 +27,7 @@ import Language.Glyph.Monoid
 import Language.Glyph.Parse
 import Language.Glyph.Rename
 import Language.Glyph.Syntax
+import Language.Glyph.UniqueSupply
 
 import System.Console.CmdArgs hiding (args, name)
 import System.Environment
@@ -48,7 +50,7 @@ main = do
 glyph' :: IO ()
 glyph' =
   ByteString.getContents >>=
-  runLoggerT . runIdentSupplyT .
+  runLoggerT . runUniqueSupplyT .
   (runErrorT . parse >=>
    mkSymtab >=>
    checkBreak >=>
@@ -63,8 +65,10 @@ glyph' =
    addExtraSet >=>
    addName >=>
    checkVar >=>
-   inferType >=>
-   const (return ()))
+   (\ (stmts, symtab) -> do
+     graph <- toGraph' stmts
+     liftIO $ putStrLn $ showGraph' graph
+     return ()))
   where
     mkSymtab stmts = return (stmts, ())
     addIdents (stmts, _) = return (stmts, idents stmts)
@@ -75,3 +79,4 @@ glyph' =
         queryExpr (FunE x _ _) = IdentMap.singleton x ()
         queryExpr _ = mempty
         queryName (ident -> x) = IdentMap.singleton x ()
+    toGraph' = runErrorT . toGraph

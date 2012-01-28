@@ -1,10 +1,11 @@
 {-# LANGUAGE
     DeriveDataTypeable
   , DeriveFunctor
+  , FlexibleInstances
   , MultiParamTypeClasses
   , TypeSynonymInstances #-}
 module Language.Glyph.Syntax.Internal
-       ( module Language.Glyph.View
+       ( module X
        , Stmt (..)
        , StmtView (..)
        , Expr (..)
@@ -20,9 +21,13 @@ import Control.Comonad
 import Data.Data
 import Data.Int
 import Data.Text (Text)
+import qualified Data.Text as Text
 
 import Language.Glyph.Ident
-import Language.Glyph.View
+import Language.Glyph.Update as X
+import Language.Glyph.View as X
+
+import Text.PrettyPrint.Free
 
 data Stmt a = Stmt a (StmtView a) deriving (Show, Typeable, Data, Functor)
 
@@ -53,23 +58,42 @@ data Lit
   = IntL Int32
   | DoubleL Double
   | BoolL Bool
-  | VoidL deriving (Show, Typeable, Data)
+  | VoidL deriving (Typeable, Data)
 
-data Name = Name Ident Text deriving (Show, Typeable, Data)
+instance Pretty Lit where
+  pretty (IntL x) = pretty . toInteger $ x
+  pretty (DoubleL x) = pretty x
+  pretty (BoolL True) = text "true"
+  pretty (BoolL False) = text "false"
+  pretty VoidL = text "void"
+
+instance Show Lit where
+  show = show . pretty
+
+data Name = Name Ident NameView deriving (Show, Typeable, Data)
+
+instance Pretty Name where
+  pretty = pretty . text . Text.unpack . view
 
 type NameView = Text
 
 instance View (Stmt a) (StmtView a) where
   view (Stmt _ x) = x
-  updateView (Stmt x _) = Stmt x
+
+instance Update (Stmt a) (StmtView a) where
+  update (Stmt a _) = Stmt a
 
 instance View (Expr a) (ExprView a) where
   view (Expr _ x) = x
-  updateView (Expr x _) = Expr x
+
+instance Update (Expr a) (ExprView a) where
+  update (Expr a _) = Expr a
 
 instance View Name NameView where
   view (Name _ x) = x
-  updateView (Name x _) = Name x
+
+instance Update Name NameView where
+  update (Name a _) = Name a
 
 instance Extend Stmt where
   duplicate w@(Stmt _ _) = Stmt w undefined

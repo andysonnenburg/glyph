@@ -29,10 +29,11 @@ import Language.Glyph.Message
 import Language.Glyph.Monoid
 import Language.Glyph.Type
 import qualified Language.Glyph.Type as Type
+import Language.Glyph.UniqueSupply
 
 inferType :: ( HasLocation a
-            , MonadIdentSupply m
             , MonadLogger Message m
+            , MonadUniqueSupply m
             ) => Exp a -> m (Substitution, Type)
 inferType = inferExp mempty
 
@@ -67,8 +68,8 @@ instance Error TypeException where
 instance Exception TypeException
 
 inferExp :: ( HasLocation a
-           , MonadIdentSupply m
            , MonadLogger Message m
+           , MonadUniqueSupply m
            ) => TypeEnvironment -> Exp a -> m (Substitution, Type)
 inferExp = go
   where
@@ -144,8 +145,8 @@ inferLit _gamma x =
      VoidL -> Void)
 
 tuple :: ( HasLocation a
-        , MonadIdentSupply m
         , MonadLogger Message m
+        , MonadUniqueSupply m
         ) => TypeEnvironment -> [Exp a] -> m (Substitution, Type)
 tuple gamma es = do
   (s, reverse -> taus) <- go (reverse es)
@@ -158,10 +159,10 @@ tuple gamma es = do
       (s2, tau) <- inferExp (s1 $$ gamma) x
       return (s2 $. s1, tau : taus)
 
-fresh :: MonadIdentSupply m => m Type
-fresh = liftM Type.Var newIdent
+fresh :: MonadUniqueSupply m => m Type
+fresh = liftM Type.Var freshIdent
 
-instantiate :: MonadIdentSupply m => TypeScheme -> m Type
+instantiate :: MonadUniqueSupply m => TypeScheme -> m Type
 instantiate (Forall alphas tau) = do
   (mconcat -> s) <- forM alphas $ \ alpha -> do
     beta <- fresh

@@ -52,7 +52,6 @@ data ExpView a
 
 instance View (Exp a) (ExpView a) where
   view (Exp _ x) = x
-  updateView (Exp x _) = Exp x
 
 data Pat
   = VarP Ident

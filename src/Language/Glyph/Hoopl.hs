@@ -25,6 +25,7 @@ import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.Writer
 
+import Data.Maybe
 import Data.Typeable
 
 import Language.Glyph.Ident
@@ -42,8 +43,6 @@ data Stmt a e x where
   Stmt :: a -> StmtView a x -> Stmt a O x
   Label :: Label -> Stmt a C O
   Goto :: Label -> Stmt a O C
-  Try :: Stmt a O O
-  EndTry :: MaybeC x Label -> Stmt a O x
   Catch :: Maybe Name -> Label -> Stmt a C O
   ReturnVoid :: Stmt a O C
 
@@ -52,12 +51,27 @@ instance Show (Stmt a e x) where
 
 data StmtView a x where
   ExprS :: Expr a -> MaybeC x (Label, Label) -> StmtView a x
-  -- TODO XXX
-  VarDeclS :: Name -> Maybe (Expr a, MaybeC x (Label, Label)) -> StmtView a x
+  VarDeclS :: Name -> VarInit a x -> StmtView a x
   FunDeclS :: Name -> [Name] -> Graph (Stmt a) O C -> StmtView a O
   ReturnS :: Expr a -> Maybe Label -> StmtView a C
   IfS :: Expr a -> Label -> Label -> Maybe Label -> StmtView a C
   ThrowS :: Expr a -> Maybe Label -> StmtView a C
+
+data VarInit a x where
+  UndefinedO :: VarInit a O
+  ExprO :: Expr a -> VarInit a O
+  ExprC :: Expr a -> Label -> Label -> VarInit a C
+
+data Expr a = Expr a (ExprView a)
+
+data ExprView a where
+  LitE :: Lit -> ExprView a
+  NotE :: Expr a -> ExprView a
+  VarE :: Name -> ExprView a
+  FunE :: Ident -> [Name] -> Graph (Stmt a) O C -> ExprView a
+  ApplyE :: Expr a -> [Expr a] -> ExprView a
+  AssignE :: Name -> Expr a -> ExprView a
+
 
 instance Show (StmtView a x) where
   show = show . pretty
@@ -72,6 +86,10 @@ instance Pretty (Stmt a e x) where
         prettyLabel label <> colon
       go (Goto label) =
         text "goto" <+> prettyLabel label <> semi
+      go (Catch Nothing _label) =
+        text "catch" <+> parens (text "...") <> colon
+      go (Catch (Just name) _label) =
+        text "catch" <+> parens (pretty name) <> colon
       go ReturnVoid =
         text "return" <+> pretty VoidL <> semi
 
@@ -79,23 +97,33 @@ instance Pretty (StmtView a x) where
   pretty = go
     where
       go :: StmtView a x -> Doc e
-      go (VarDeclS name Nothing) =
+      go (ExprS expr NothingC) =
+        pretty expr <> semi
+      go (ExprS expr (JustC (nextLabel, _catchLabel))) =
+        pretty expr <> semi
+        `above`
+        goto nextLabel
+      go (VarDeclS name UndefinedO) =
         varDecl name
-      go (VarDeclS name (Just (expr, NothingC))) =
+      go (VarDeclS name (ExprO expr)) =
         varDef name expr
-      go (VarDeclS name (Just (expr, (JustC (nextLabel, catchLabel))))) =
+      go (VarDeclS name (ExprC expr nextLabel _catchLabel)) =
         varDef name expr
         `above`
-        text "goto" <+> prettyLabel nextLabel <> semi
+        goto nextLabel
       go (FunDeclS name params graph) =
         text "fn" <+> pretty name <> tupled (map pretty params) <+> lbrace <>
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>
         rbrace
-      go (IfS expr then' else' catch') =
+      go (ReturnS expr _maybeCatchLabel) =
+        text "return" <+> pretty expr <> semi 
+      go (IfS expr then' else' _maybeCatchLabel) =
         text "if" <+> parens (pretty expr) <+>
         prettyLabel then' <+>
         prettyLabel else' <>
         semi
+      go (ThrowS expr _maybeCatchLabel) =
+        text "throw" <+> pretty expr <> semi
       
       varDef :: Name -> Expr a -> Doc e
       varDef name expr =
@@ -109,6 +137,10 @@ instance Pretty (StmtView a x) where
       var name =
         text "var" <+> pretty name
 
+      goto :: Label -> Doc e
+      goto label =
+        text "goto" <+> prettyLabel label <> semi
+
 instance Pretty (Expr a) where
   pretty (Expr _ x) = pretty x
 
@@ -117,31 +149,52 @@ instance Pretty (ExprView a) where
     where
       go (LitE lit) =
         pretty lit
+      go (NotE expr) =
+        char '!' <> pretty expr
+      go (VarE name) =
+        pretty name
+      go (FunE _ params graph) =
+        text "fn" <+> tupled (map pretty params) <+> lbrace <>
+        (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>
+        rbrace
+      go (ApplyE expr exprs) =
+        pretty expr <> tupled (map pretty exprs)
+      go (AssignE name expr) =
+        pretty name <+> char '=' <+> pretty expr
 
 prettyLabel :: Label -> Doc e'
 prettyLabel = text . show
 
 instance NonLocal (Stmt a) where
-  entryLabel (Label label) = label
+  entryLabel = go
+    where
+      go (Label label) = label
+      go (Catch _maybeName label) = label
   
-  successors (Goto label) = [label]
-  successors ReturnVoid = []
+  
+  successors = stmtSuccessors
+    where
+      stmtSuccessors = go
+        where
+          go (Stmt _ x) = stmtViewSuccessors x
+          go (Goto label) = [label]
+          go ReturnVoid = []
+      
+      stmtViewSuccessors = go
+        where
+          go :: StmtView a C -> [Label]
+          go (ExprS _ (JustC (nextLabel, catchLabel))) =
+            [nextLabel, catchLabel]
+          go (VarDeclS _ (ExprC _ nextLabel catchLabel)) =
+            [nextLabel, catchLabel]
+          go (ReturnS _ maybeCatchLabel') =
+            maybeToList maybeCatchLabel'
+          go (IfS _ thenLabel elseLabel maybeCatchLabel') =
+            [thenLabel, elseLabel] ++ maybeToList maybeCatchLabel'
 
 instance HooplNode (Stmt a) where
   mkBranchNode = Goto
   mkLabelNode = Label
-
-data Expr a = Expr a (ExprView a) deriving Show
-
-data ExprView a where
-  LitE :: Lit -> ExprView a
-  NotE :: Expr a -> ExprView a
-  VarE :: Name -> ExprView a
-  FunE :: Ident -> [Name] -> Graph (Stmt a) O C -> ExprView a
-  ApplyE :: Expr a -> [Expr a] -> ExprView a
-  AssignE :: Name -> Expr a -> ExprView a
-
-instance Show a => Show (ExprView a) where
 
 data HooplException
   = IllegalBreak
@@ -178,6 +231,11 @@ askContinueLabel :: (MonadError HooplException m, MonadReader (R a) m) => m Labe
 askContinueLabel = do
   R { maybeLoopLabels } <- ask
   maybe (throwError IllegalContinue) (return . snd) maybeLoopLabels
+
+localLoopLabels :: MonadReader (R a) m => Label -> Label -> m a' -> m a'
+localLoopLabels breakLabel continueLabel = local (\ r -> r { maybeLoopLabels })
+  where
+    maybeLoopLabels = mkLoopLabels breakLabel continueLabel
 
 mkLoopLabels :: Label -> Label -> Maybe (Label, Label)
 mkLoopLabels breakLabel continueLabel = Just (breakLabel, continueLabel)
@@ -227,17 +285,25 @@ toGraph stmts = do
               let last = mkLast stmt
                   first = mkLabel nextLabel
               return $ last |*><*| first
+        Glyph.VarDeclS name Nothing ->
+          liftM mkMiddle $ stmtM' $ VarDeclS name UndefinedO
         Glyph.VarDeclS name (Just expr) -> do
           R { maybeCatchLabel } <- ask
           case maybeCatchLabel of
             Nothing -> do
               stmt <- stmtM $ do
                 expr' <- toExpr expr
-                return $ VarDeclS name (Just (expr', NothingC))
+                return $ VarDeclS name $ ExprO expr'
               let middle = mkMiddle stmt
               return middle
-        Glyph.VarDeclS name Nothing ->
-          liftM mkMiddle $ stmtM' $ VarDeclS name Nothing
+            Just catchLabel -> do
+              nextLabel <- freshLabel
+              stmt <- stmtM $ do
+                expr' <- toExpr expr
+                return $ VarDeclS name $ ExprC expr' nextLabel catchLabel
+              let last = mkLast stmt
+                  first = mkLabel nextLabel
+              return $ last |*><*| first
         Glyph.FunDeclS name params stmts' -> do
           liftM mkMiddle $ stmtM $ do
             graph <- toGraph stmts'
@@ -253,13 +319,38 @@ toGraph stmts = do
         Glyph.IfThenElseS expr stmt Nothing -> do
           thenLabel <- freshLabel
           nextLabel <- freshLabel
-          ifGraph <- liftM mkLast $ stmtM $ do
+          if' <- liftM mkLast $ stmtM $ do
             expr' <- toExpr expr
-            R { maybeCatchLabel } <- ask
-            return $ IfS expr' thenLabel nextLabel maybeCatchLabel
-          stmtGraph <- go stmt
-          let thenGraph = mkLabel thenLabel <*> stmtGraph <*> mkBranch nextLabel
-          return $ ifGraph |*><*| thenGraph |*><*| mkLabel nextLabel
+            asks $ IfS expr' thenLabel nextLabel . maybeCatchLabel
+          stmtGraph <- localA $ go stmt
+          let then' = mkLabel thenLabel <*> stmtGraph <*> mkBranch nextLabel
+              first = mkLabel nextLabel
+          return $ if' |*><*| then' |*><*| first
+        Glyph.IfThenElseS expr stmt1 (Just stmt2) -> do
+          thenLabel <- freshLabel
+          elseLabel <- freshLabel
+          if' <- liftM mkLast $ stmtM $ do
+            expr' <- toExpr expr
+            asks $ IfS expr' thenLabel elseLabel . maybeCatchLabel
+          nextLabel <- freshLabel
+          stmt1Graph <- localA $ go stmt1
+          let then' = mkLabel thenLabel <*> stmt1Graph <*> mkBranch nextLabel
+          stmt2Graph <- localA $ go stmt2
+          let else' = mkLabel elseLabel <*> stmt2Graph <*> mkBranch nextLabel
+              first = mkLabel nextLabel
+          return $ if' |*><*| then' |*><*| else' |*><*| first
+        Glyph.WhileS expr stmt -> do
+          testLabel <- freshLabel
+          bodyLabel <- freshLabel
+          nextLabel <- freshLabel
+          if' <- liftM mkLast $ stmtM $ do
+            expr' <- toExpr expr
+            asks $ IfS expr' bodyLabel nextLabel . maybeCatchLabel
+          let test = mkLabel testLabel <*> if'
+          stmtGraph <- localA $ localLoopLabels nextLabel testLabel $ go stmt
+          let body = mkLabel bodyLabel <*> stmtGraph <*> mkBranch testLabel
+              next = mkLabel nextLabel
+          return $ mkBranch testLabel |*><*| test |*><*| body |*><*| next
         Glyph.BreakS -> do
           breakLabel <- askBreakLabel
           let last = mkBranch breakLabel
@@ -272,16 +363,29 @@ toGraph stmts = do
           label <- freshLabel
           let first = mkLabel label
           return $ last |*><*| first
+        Glyph.ThrowS expr -> do
+          stmt <- stmtM $ do
+            expr' <- toExpr expr
+            R { maybeCatchLabel } <- ask
+            return $ ThrowS expr' maybeCatchLabel
+          let last = mkLast stmt
+          nextLabel <- freshLabel
+          let first = mkLabel nextLabel
+          return $ last |*><*| first
         Glyph.BlockS stmts' ->
-          liftM catGraphs $ mapM go stmts'
+          localA $ liftM catGraphs $ mapM go stmts'
       where
         stmtM :: forall x . m (StmtView a x) -> m (Stmt a O x)
         stmtM m = do
-          x' <- local (\ r' -> r' { annotation = a }) m
+          x' <- localA m
           return $ Stmt a x'
         
         stmtM' =
           stmtM . return
+        
+        localA :: forall a . m a -> m a
+        localA m = do
+          local (\ r' -> r' { annotation = a }) m
     
 litE :: MonadReader (R a) m => Lit -> m (Expr a)
 litE lit = do

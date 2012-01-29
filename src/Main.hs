@@ -18,10 +18,8 @@ import Language.Glyph.CheckReturn
 import Language.Glyph.CheckVar
 import Language.Glyph.Error
 import Language.Glyph.Hoopl (toGraph, showGraph')
-import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
-import Language.Glyph.InferType
 import Language.Glyph.Logger
 import Language.Glyph.Monoid
 import Language.Glyph.Parse
@@ -65,7 +63,7 @@ glyph' =
    addExtraSet >=>
    addName >=>
    checkVar >=>
-   (\ (stmts, symtab) -> do
+   (\ (stmts, _symtab) -> do
      graph <- toGraph' stmts
      liftIO $ putStrLn $ showGraph' graph
      return ()))

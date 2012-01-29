@@ -3,7 +3,8 @@
   , FlexibleContexts
   , GADTs
   , NamedFieldPuns
-  , ScopedTypeVariables #-}
+  , ScopedTypeVariables
+  , StandaloneDeriving #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Glyph.Hoopl
        ( module X
@@ -46,65 +47,71 @@ data Stmt a e x where
   Catch :: Maybe Name -> Label -> Stmt a C O
   ReturnVoid :: Stmt a O C
 
+instance Show (Stmt a e x) where
+  show = show . pretty
+
 data StmtView a x where
   ExprS :: Expr a -> Label -> StmtView a C
-  VarDeclS :: Name -> MaybeC x (Expr a) -> StmtView a x
+  VarDeclS :: Name -> MaybeC x (Expr a, Label) -> StmtView a x
   FunDeclS :: Name -> [Name] -> Graph (Stmt a) O C -> StmtView a O
   ReturnS :: Expr a -> Maybe Label -> StmtView a C
   IfS :: Expr a -> Label -> Label -> StmtView a C
   ThrowS :: Expr a -> Maybe Label -> StmtView a C
 
-type PrettyM = State (Int, LabelMap Int)
+instance Show (StmtView a x) where
+  show = show . pretty
 
-prettyStmt :: Stmt a e x -> PrettyM (Doc e')
-prettyStmt = go
-  where
-    go :: Stmt a e x -> PrettyM (Doc e')
-    go (Stmt _ view) =
-      prettyStmtView view
-    go (Label label) = do
-      labelDoc <- prettyLabel label
-      return $ labelDoc <> char ':'
-    go (Goto label) = do
-      labelDoc <- prettyLabel label
-      return $ text "goto" <+> labelDoc <> char ';'
-    go ReturnVoid =
-      return $ text "return" <+> pretty VoidL <> char ';'
-      
-prettyStmtView :: StmtView a x -> PrettyM (Doc e')
-prettyStmtView x =
-  case x of
-    VarDeclS name NothingC ->
-      return $ text "var" <+> pretty name <> char ';'
-      
-prettyLabel :: Label -> PrettyM (Doc e')
-prettyLabel label = do
-  i <- lookupLabel label
-  return $ char 'L' <> pretty i
-      
-lookupLabel :: Label -> PrettyM Int
-lookupLabel label = do
-  (labelCount, labelMap) <- get
-  case mapLookup label labelMap of
-    Nothing -> do
-      put (labelCount + 1, mapInsert label labelCount labelMap)
-      return labelCount
-    Just i ->
-      return i
+instance Pretty (Stmt a e x) where
+  pretty x = go x
+    where
+      go :: Stmt a e x -> Doc e'
+      go (Stmt _ view) =
+        pretty view
+      go (Label label) =
+        prettyLabel label <> char ':'
+      go (Goto label) =
+        text "goto" <+> prettyLabel label <> char ';'
+      go ReturnVoid =
+        text "return" <+> pretty VoidL <> char ';'
+
+instance Pretty (StmtView a x) where
+  pretty = go
+    where
+      go :: StmtView a x -> Doc e
+      go (VarDeclS name NothingC) =
+        text "var" <+> pretty name <> char ';'
+      go (VarDeclS name (JustC (expr, label))) =
+        text "var" <+> pretty name <+> char '=' <+> pretty expr <> char ';'
+        `above`
+        text "goto" <+> prettyLabel label <> char ';'
+      go (IfS expr then' else') =
+        text "if" <+> parens (pretty expr) <+>
+        prettyLabel then' <+>
+        prettyLabel else'
+
+instance Pretty (Expr a) where
+  pretty (Expr _ view Nothing) = pretty view
+
+instance Pretty (ExprView a) where
+  pretty = go
+    where
+      go (LitE lit) =
+        pretty lit
+
+prettyLabel :: Label -> Doc e'
+prettyLabel = text . show
 
 instance NonLocal (Stmt a) where
   entryLabel (Label label) = label
-  entryLabel (Catch _ label) = label
   
   successors (Goto label) = [label]
-  successors (EndTry (JustC label)) = [label]
   successors ReturnVoid = []
 
 instance HooplNode (Stmt a) where
   mkBranchNode = Goto
   mkLabelNode = Label
 
-data Expr a = Expr a (ExprView a) (Maybe Label)
+data Expr a = Expr a (ExprView a) (Maybe Label) deriving Show
 
 data ExprView a where
   LitE :: Lit -> ExprView a
@@ -113,6 +120,8 @@ data ExprView a where
   FunE :: Ident -> [Name] -> Graph (Stmt a) O C -> ExprView a
   ApplyE :: Expr a -> [Expr a] -> ExprView a
   AssignE :: Name -> Expr a -> ExprView a
+
+instance Show a => Show (ExprView a) where
 
 data HooplException
   = IllegalBreak
@@ -192,7 +201,7 @@ toGraph stmts = do
           nextLabel <- freshLabel
           last <- liftM mkLast $ stmtM $ do
             expr' <- toExpr expr
-            return $ VarDeclS name (JustC expr')
+            return $ VarDeclS name (JustC (expr', nextLabel))
           let first = mkLabel nextLabel
           return $ last |*><*| first
         Glyph.VarDeclS name Nothing ->
@@ -268,11 +277,4 @@ toExpr (Glyph.Expr a v) =
       return $ Expr a x' catchLabel
 
 showGraph' :: Graph (Stmt a) e x -> String
-showGraph' graph =
-  show . vcat $
-  flip evalState (0, mapEmpty) $
-  sequence $ foldGraphNodes f graph []
-  where
-    f :: Stmt a e x -> [PrettyM (Doc e')] -> [PrettyM (Doc e')]
-    f stmt xs = xs ++ [prettyStmt stmt]
-    
+showGraph' = showGraph (show . (<> line) . pretty)

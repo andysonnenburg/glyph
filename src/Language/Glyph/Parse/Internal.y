@@ -20,7 +20,7 @@ import Language.Glyph.Lex.Internal
 import Language.Glyph.Parser
 import Language.Glyph.Syntax.Internal hiding (Expr, ExprView, Name, Stmt, StmtView)
 import qualified Language.Glyph.Syntax.Internal as Syntax
-import Language.Glyph.Token hiding (False, Fun, Return, True, Var)
+import Language.Glyph.Token hiding (False, Return, True)
 import qualified Language.Glyph.Token as Token
 import Language.Glyph.UniqueSupply
 
@@ -30,8 +30,8 @@ import Prelude hiding (break, lex)
 %tokentype { Located Token }
 
 %token
-VAR { (extract -> Token.Var) }
-FUN { (extract -> Token.Fun) }
+VAR { (extract -> Var) }
+FN { (extract -> Fn) }
 NAME { (extract -> Name _) }
 '.' { (extract -> Period) }
 ',' { (extract -> Comma) }
@@ -126,7 +126,7 @@ throw :: { Stmt }
   : THROW expr { stmt $1 $2 (throw $2) }
 
 funDecl :: { Stmt }
-  : FUN name '(' parameters ')' '{' manyStmts '}' {
+  : FN name '(' parameters ')' '{' manyStmts '}' {
       stmt $1 $8 (funDecl $2 $4 $7)
     }
 
@@ -148,7 +148,7 @@ var :: { Expr }
   : locatedName { expr $1 $1 (var (extract $1)) }
 
 fun :: { Expr }
-  : FUN '(' parameters ')' '{' manyStmts '}' {% liftM (expr $1 $7) (fun $3 $6) }
+  : FN '(' parameters ')' '{' manyStmts '}' {% liftM (expr $1 $7) (fun $3 $6) }
 
 bool :: { Expr }
   : TRUE { expr $1 $1 (bool True) }

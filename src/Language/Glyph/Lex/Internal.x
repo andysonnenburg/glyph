@@ -36,7 +36,7 @@ $white+ ;
 
 <0> {
   "var" { var }
-  "fun" { fun }
+  "fn" { fn }
   "return" { return' }
   "if" { if' }
   "else" { else' }
@@ -69,8 +69,8 @@ special x l _ _ = return (Annotated l x)
 var :: MonadError ParseException m => Action m
 var = special Var
 
-fun :: MonadError ParseException m => Action m
-fun = special Fun
+fn :: MonadError ParseException m => Action m
+fn = special Fn
 
 name :: MonadError ParseException m => Action m
 name l s n = do

@@ -24,8 +24,6 @@ import Language.Glyph.Logger.Class
 import Language.Glyph.Unique.Internal
 import Language.Glyph.UniqueSupply.Class as X
 
-import qualified Unsafe.Coerce as Unsafe (unsafeCoerce)
-
 import Prelude hiding (log)
 
 type UniqueSupply = UniqueSupplyT Identity
@@ -66,4 +64,4 @@ instance MonadLogger w m => MonadLogger w (UniqueSupplyT m) where
   log = lift . log
 
 instance Monad m => Hoopl.UniqueMonad (UniqueSupplyT m) where
-  freshUnique = liftM Unsafe.unsafeCoerce freshUnique
+  freshUnique = freshUnique

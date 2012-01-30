@@ -4,12 +4,13 @@ module Language.Glyph.Unique.Internal
        , uniqueToInt
        ) where
 
-newtype Unique
-  = Unique { unUnique :: Int
-           } deriving (Eq, Ord, Show)
+import qualified Compiler.Hoopl as Hoopl
+import Compiler.Hoopl.GHC (uniqueToInt)
+
+import qualified Unsafe.Coerce as Unsafe (unsafeCoerce)
+
+type Unique = Hoopl.Unique
 
 intToUnique :: Int -> Unique
-intToUnique = Unique
+intToUnique = Unsafe.unsafeCoerce
 
-uniqueToInt :: Unique -> Int
-uniqueToInt = unUnique

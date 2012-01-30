@@ -16,6 +16,7 @@ module Language.Glyph.IdentSet.Internal
        , notMember
        , null
        , singleton
+       , size
        , toList
        , union
        , unions
@@ -75,6 +76,9 @@ null = IntSet.null . unIdentSet
 
 singleton :: Ident -> IdentSet
 singleton (Ident x) = IdentSet $ IntSet.singleton $ uniqueToInt x
+
+size :: IdentSet -> Int
+size = IntSet.size . unIdentSet
 
 toList :: IdentSet -> [Ident]
 toList = map (Ident . intToUnique) . IntSet.toList . unIdentSet

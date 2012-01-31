@@ -1,9 +1,13 @@
 {-# LANGUAGE
     DeriveDataTypeable
   , FlexibleContexts
+  , FlexibleInstances
   , GADTs
+  , GeneralizedNewtypeDeriving
+  , MultiParamTypeClasses
   , NamedFieldPuns
   , ScopedTypeVariables
+  , StandaloneDeriving
   , TypeFamilies #-}
 module Language.Glyph.Hoopl
        ( module X
@@ -22,6 +26,7 @@ import qualified Compiler.Hoopl as Hoopl
 import Control.Comonad
 import Control.Exception hiding (block)
 import Control.Monad.Error
+import qualified Control.Monad.Identity as Monad
 import Control.Monad.Reader
 import Control.Monad.Writer
 
@@ -83,24 +88,23 @@ localLoopLabels breakLabel continueLabel = local (\ r -> r { maybeLoopLabels })
 mkLoopLabels :: Label -> Label -> Maybe (Label, Label)
 mkLoopLabels breakLabel continueLabel = Just (breakLabel, continueLabel)
 
-instance UniqueMonad m => UniqueMonad (ReaderT r m) where
-  freshUnique = lift freshUnique
-
-instance (Monoid w, UniqueMonad m) => UniqueMonad (WriterT w m) where
-  freshUnique = lift freshUnique
-
 newtype Identity a
-  = Identity { runIdentity :: a
-             }
+  = Identity { unIdentity :: Monad.Identity a
+             } deriving Monad
 
-instance Monad Identity where
-  return = Identity
-  Identity a >>= f = f a
+runIdentity :: Identity a -> a
+runIdentity = Monad.runIdentity . unIdentity
 
 instance CheckpointMonad Identity where
   type Checkpoint Identity = ()
   checkpoint = return ()
   restart = return
+
+instance UniqueMonad m => UniqueMonad (ReaderT r m) where
+  freshUnique = lift freshUnique
+
+instance (Monoid w, UniqueMonad m) => UniqueMonad (WriterT w m) where
+  freshUnique = lift freshUnique
 
 toGraph :: ( Monoid a
            , Monad m
@@ -192,10 +196,10 @@ fromStmt (Glyph.Stmt a x) =
         expr' <- fromExpr expr
         asks $ IfS expr' thenLabel elseLabel . maybeCatchLabel
       nextLabel <- freshLabel
-      stmt1Graph <- local' $ fromStmt stmt1
-      let then' = mkLabel thenLabel |<*>| stmt1Graph |<*>| mkBranch nextLabel
-      stmt2Graph <- local' $ fromStmt stmt2
-      let else' = mkLabel elseLabel |<*>| stmt2Graph |<*>| mkBranch nextLabel
+      stmt1' <- local' $ fromStmt stmt1
+      let then' = mkLabel thenLabel |<*>| stmt1' |<*>| mkBranch nextLabel
+      stmt2' <- local' $ fromStmt stmt2
+      let else' = mkLabel elseLabel |<*>| stmt2' |<*>| mkBranch nextLabel
           first = mkLabel nextLabel
       return $ if' |*><*| then' |*><*| else' |*><*| first
     Glyph.WhileS expr stmt -> do

@@ -6,19 +6,18 @@ module Language.Glyph.Hoopl.Syntax
        , VarInit (..)
        , Expr (..)
        , ExprView (..)
-       , Name
        , prettyGraph
        ) where
 
 import Compiler.Hoopl
 
-import Data.Foldable (Foldable)
+import Data.Foldable (Foldable, toList)
 import Data.Maybe
 
 import Language.Glyph.Ident
 import Language.Glyph.Syntax as X (Lit (..), Name, ident)
 
-import Text.PrettyPrint.Free
+import Text.PrettyPrint.Free hiding (encloseSep, tupled)
 
 data Stmt a e x where
   Stmt :: a -> StmtView a x -> Stmt a O x
@@ -124,7 +123,7 @@ instance Pretty (StmtView a x) where
         `above`
         goto nextLabel
       go (FunDeclS name params graph) =
-        text "fn" <+> pretty name <> tupled' (map pretty params) <+> lbrace <>
+        text "fn" <+> pretty name <> tupled (map pretty params) <+> lbrace <>
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>
         rbrace
       go (ReturnS expr _maybeCatchLabel) =
@@ -166,19 +165,26 @@ instance Pretty (ExprView a) where
       go (VarE name) =
         pretty name
       go (FunE _ params graph) =
-        text "fn" <+> tupled' (map pretty params) <+> lbrace <>
+        text "fn" <+> tupled (map pretty params) <+> lbrace <>
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>
         rbrace
       go (ApplyE expr exprs) =
-        pretty expr <> tupled' (map pretty exprs)
+        pretty expr <> tupled (map pretty exprs)
       go (AssignE name expr) =
         pretty name <+> char '=' <+> pretty expr
 
-prettyLabel :: Label -> Doc e'
+prettyLabel :: Label -> Doc e
 prettyLabel = text . show
 
-tupled' :: Foldable f => f (Doc e) -> Doc e
-tupled' = encloseSep lparen rparen (comma <> space)
+tupled :: Foldable f => f (Doc e) -> Doc e
+tupled = encloseSep lparen rparen (comma <> space)
+
+encloseSep :: Foldable f => Doc e -> Doc e -> Doc e -> f (Doc e) -> Doc e
+encloseSep left right sp ds0 =
+  case toList ds0 of
+    [] -> left <> right
+    [d] -> left <> d <> right
+    ds -> left <> align (cat (zipWith (<>) (init ds) (repeat sp) ++ [last ds <> right]))
 
 instance NonLocal (Stmt a) where
   entryLabel = go

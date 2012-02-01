@@ -16,7 +16,7 @@ import Control.Monad.Reader
 import Language.Glyph.IdentMap
 import Language.Glyph.Symtab.Class as X
 import Language.Glyph.Symtab.Instances ()
-import Language.Glyph.UniqueSupply
+import Language.Glyph.Unique
 
 newtype SymtabT r m a =
   SymtabT ( ReaderT (IdentMap r) m a
@@ -41,5 +41,5 @@ instance MonadReader r' m => MonadReader r' (SymtabT r m) where
   ask = lift ask
   local f (SymtabT m) = SymtabT $ (mapReaderT . local) f m
 
-instance MonadUniqueSupply m => MonadUniqueSupply (SymtabT r m) where
+instance UniqueMonad m => UniqueMonad (SymtabT r m) where
   freshUnique = lift freshUnique

@@ -1,15 +1,13 @@
 module Language.Glyph.Unique.Internal
-       ( Unique
+       ( module X
        , intToUnique
        , uniqueToInt
        ) where
 
-import qualified Compiler.Hoopl as Hoopl
+import Compiler.Hoopl as X (Unique, UniqueMonad (..))
 import Compiler.Hoopl.GHC (uniqueToInt)
 
 import qualified Unsafe.Coerce as Unsafe (unsafeCoerce)
-
-type Unique = Hoopl.Unique
 
 intToUnique :: Int -> Unique
 intToUnique = Unsafe.unsafeCoerce

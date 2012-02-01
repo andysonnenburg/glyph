@@ -24,7 +24,7 @@ import Data.Typeable
 import Language.Glyph.Logger.Class
 import Language.Glyph.Logger.Instances ()
 import Language.Glyph.Message
-import Language.Glyph.UniqueSupply
+import Language.Glyph.Unique
 
 import System.IO
 
@@ -71,5 +71,5 @@ put = LoggerT . State.put
 liftIO :: MonadIO m => IO a -> LoggerT m a
 liftIO = LoggerT . Trans.liftIO
 
-instance MonadUniqueSupply m => MonadUniqueSupply (LoggerT m) where
+instance UniqueMonad m => UniqueMonad (LoggerT m) where
   freshUnique = lift freshUnique

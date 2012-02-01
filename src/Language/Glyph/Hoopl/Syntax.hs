@@ -37,6 +37,8 @@ data StmtView a x where
   IfS :: Expr a -> Label -> Label -> Maybe Label -> StmtView a C
   ThrowS :: Expr a -> Maybe Label -> StmtView a C
 
+type ExprIdent a = Unique
+
 data VarInit a x where
   UndefinedO :: VarInit a O
   ExprO :: Expr a -> VarInit a O
@@ -51,7 +53,6 @@ data ExprView a where
   FunE :: Ident -> [Name] -> Graph (Stmt a) O C -> ExprView a
   ApplyE :: Expr a -> [Expr a] -> ExprView a
   AssignE :: Name -> Expr a -> ExprView a
-
 
 instance Show (StmtView a x) where
   show = show . pretty

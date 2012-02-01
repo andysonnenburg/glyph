@@ -11,6 +11,7 @@ module Language.Glyph.IdentMap
        , filterWithKey
        , findWithDefault
        , foldWithKey
+       , foldrWithKey
        , fromList
        , insert
        , intersection
@@ -86,6 +87,9 @@ findWithDefault def (Ident k) (IdentMap m) = IntMap.findWithDefault def (uniqueT
 
 foldWithKey :: (Ident -> a -> b -> b) -> b -> IdentMap a -> b
 foldWithKey f z (IdentMap t) = IntMap.foldWithKey (f . Ident . intToUnique) z t
+
+foldrWithKey :: (Ident -> a -> b -> b) -> b -> IdentMap a -> b
+foldrWithKey f z (IdentMap t) = IntMap.foldrWithKey (f . Ident . intToUnique) z t
 
 fromList :: [(Ident, v)] -> IdentMap v
 fromList = IdentMap . IntMap.fromList . map (\ (Ident k, v) -> (uniqueToInt k, v))

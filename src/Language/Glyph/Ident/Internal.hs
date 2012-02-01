@@ -15,7 +15,7 @@ import Control.Monad
 
 import Data.Data
 
-import Language.Glyph.UniqueSupply
+import Language.Glyph.Unique
 import Language.Haskell.TH.Syntax (showName)
 import qualified Language.Haskell.TH as TH
 
@@ -31,5 +31,5 @@ instance Data Ident where
     where
       name = $(return . TH.LitE . TH.StringL . showName $ ''Ident)
 
-freshIdent :: MonadUniqueSupply m => m Ident
+freshIdent :: UniqueMonad m => m Ident
 freshIdent = liftM Ident freshUnique

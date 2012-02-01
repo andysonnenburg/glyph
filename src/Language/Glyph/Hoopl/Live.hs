@@ -30,11 +30,10 @@ liveness :: BwdTransfer (Stmt a) Live
 liveness = mkBTransfer transfer
   where
     transfer :: Stmt a e x -> Fact x Live -> Live
-    transfer (Label _) fact = fact
+    transfer = undefined
 
 deadAssignElim :: forall m a . FuelMonad m => BwdRewrite m (Stmt a) Live
 deadAssignElim = mkBRewrite rewrite
   where
     rewrite :: Stmt a e x -> Fact x Live -> m (Maybe (Graph (Stmt a) e x))
-    rewrite _ _ =
-      return Nothing
+    rewrite = undefined

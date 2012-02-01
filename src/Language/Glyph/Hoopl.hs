@@ -1,23 +1,15 @@
 {-# LANGUAGE
     DeriveDataTypeable
   , FlexibleContexts
-  , FlexibleInstances
   , GADTs
   , GeneralizedNewtypeDeriving
-  , MultiParamTypeClasses
   , NamedFieldPuns
   , ScopedTypeVariables
-  , StandaloneDeriving
   , TypeFamilies #-}
 module Language.Glyph.Hoopl
        ( module X
-       , Stmt (..)
-       , StmtView (..)
-       , Expr (..)
-       , ExprView (..)
        , HooplException (..)
        , toGraph
-       , prettyGraph
        , showGraph'
        ) where
 
@@ -33,9 +25,10 @@ import Control.Monad.Writer
 import Data.Maybe
 import Data.Typeable
 
-import Language.Glyph.Hoopl.Live
+import Language.Glyph.Hoopl.ConstProp
 import Language.Glyph.Hoopl.RemoveUnreachable
-import Language.Glyph.Hoopl.Syntax
+import Language.Glyph.Hoopl.Simplify
+import Language.Glyph.Hoopl.Syntax as X
 import Language.Glyph.Syntax as X hiding (Stmt,
                                           StmtView (..),
                                           Expr,
@@ -100,12 +93,6 @@ instance CheckpointMonad Identity where
   checkpoint = return ()
   restart = return
 
-instance UniqueMonad m => UniqueMonad (ReaderT r m) where
-  freshUnique = lift freshUnique
-
-instance (Monoid w, UniqueMonad m) => UniqueMonad (WriterT w m) where
-  freshUnique = lift freshUnique
-
 toGraph :: ( Monoid a
            , Monad m
            , MonadError HooplException m
@@ -114,9 +101,8 @@ toGraph :: ( Monoid a
 toGraph stmts = do
   graph <- catGraphs <$> runReaderT (mapM fromStmt stmts) r
   let graph' = graph |<*>| mkLast ReturnVoid
-  return $
-    removeUnreachable . fst3 . runWithFuel' $
-    analyzeAndRewriteBwdOx bwd graph' mapEmpty
+  return $ removeUnreachable . runWithFuel' $
+    fst3 <$> analyzeAndRewriteFwdOx fwd graph' mempty
   where
     r = R { annotation = mconcat $ map extract stmts
           , maybeCatchLabel = Nothing
@@ -126,13 +112,14 @@ toGraph stmts = do
     runWithFuel' :: InfiniteFuelMonad Identity a -> a
     runWithFuel' = runIdentity . runWithFuel infiniteFuel
     
+    fst3 :: (a, b, c) -> a
     fst3 (x, _, _) = x
     
-    bwd = BwdPass { bp_lattice = liveLattice
-                  , bp_transfer = liveness
-                  , bp_rewrite = deadAssignElim
+    fwd = FwdPass { fp_lattice = constLattice
+                  , fp_transfer = varIsLit
+                  , fp_rewrite = simplify
                   }
-    
+
 fromStmt :: forall a m .
             ( Monoid a
             , MonadError HooplException m
@@ -144,7 +131,7 @@ fromStmt (Glyph.Stmt a x) =
     Glyph.ExprS expr -> do
       R { maybeCatchLabel } <- ask
       case maybeCatchLabel of
-        Nothing -> do
+        Nothing ->
           liftM mkMiddle $ stmtM $
             ExprS <$> fromExpr expr <*> pure NothingC
         Just catchLabel -> do

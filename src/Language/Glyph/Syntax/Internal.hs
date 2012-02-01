@@ -58,7 +58,7 @@ data Lit
   = IntL Int32
   | DoubleL Double
   | BoolL Bool
-  | VoidL deriving (Typeable, Data)
+  | VoidL deriving (Eq, Typeable, Data)
 
 instance Pretty Lit where
   pretty (IntL x) = pretty . toInteger $ x

@@ -20,12 +20,13 @@ import Language.Glyph.Error
 import Language.Glyph.Hoopl (toGraph, showGraph')
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
+import Language.Glyph.InferType
 import Language.Glyph.Logger
 import Language.Glyph.Monoid
 import Language.Glyph.Parse
 import Language.Glyph.Rename
 import Language.Glyph.Syntax
-import Language.Glyph.UniqueSupply
+import Language.Glyph.Unique
 
 import System.Console.CmdArgs hiding (args, name)
 import System.Environment

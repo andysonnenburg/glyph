@@ -22,7 +22,7 @@ import Language.Glyph.Syntax.Internal hiding (Expr, ExprView, Name, Stmt, StmtVi
 import qualified Language.Glyph.Syntax.Internal as Syntax
 import Language.Glyph.Token hiding (False, Return, True)
 import qualified Language.Glyph.Token as Token
-import Language.Glyph.UniqueSupply
+import Language.Glyph.Unique
 
 import Prelude hiding (break, lex)
 }
@@ -58,7 +58,7 @@ FINALLY { (extract -> Token.Finally) }
 
 %name stmts
 
-%monad { (MonadError ParseException m, MonadUniqueSupply m) } { ParserT m } { >>= } { return }
+%monad { (MonadError ParseException m, UniqueMonad m) } { ParserT m } { >>= } { return }
 
 %lexer { lexer } { (extract -> EOF) }
 
@@ -210,7 +210,7 @@ type ExprView = Syntax.ExprView Location
 type Name = Syntax.Name
 
 parse :: ( MonadError ParseException m
-         ,  MonadUniqueSupply m
+         ,  UniqueMonad m
          ) => ParserT m [Stmt]
 parse = stmts
 
@@ -257,7 +257,7 @@ throw = ThrowS
 var :: Name -> ExprView
 var = VarE
 
-fun :: MonadUniqueSupply m => [Name] -> [Stmt] -> m ExprView
+fun :: UniqueMonad m => [Name] -> [Stmt] -> m ExprView
 fun params stmts = do
   x <- freshIdent
   return $ FunE x params stmts
@@ -288,12 +288,12 @@ stmt a b x = Syntax.Stmt (location a <> location b) x
 expr :: (HasLocation a, HasLocation b) => a -> b -> ExprView -> Expr
 expr a b x = Syntax.Expr (location a <> location b) x
 
-newName :: MonadUniqueSupply m => NameView -> m Name
+newName :: UniqueMonad m => NameView -> m Name
 newName x = liftM f freshIdent
   where
     f a = Syntax.Name a x
 
-newName' :: MonadUniqueSupply m => Located Token -> m Name
+newName' :: UniqueMonad m => Located Token -> m Name
 newName' = newName . name . extract
 
 extract' :: Located a -> a

@@ -27,7 +27,7 @@ import Language.Glyph.HM.InferType hiding (inferType)
 import qualified Language.Glyph.HM.InferType as HM
 import Language.Glyph.HM.Syntax hiding (Exp (..), ExpView (..), Pat (..))
 import qualified Language.Glyph.HM.Syntax as HM
-import Language.Glyph.Ident.Internal
+import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Logger
@@ -35,14 +35,14 @@ import Language.Glyph.Message
 import Language.Glyph.Monoid
 import Language.Glyph.Symtab
 import Language.Glyph.Syntax
-import Language.Glyph.UniqueSupply
+import Language.Glyph.Unique
 
 inferType :: ( Data a
             , HasLocation a
             , Monoid a
             , HasCallSet b
             , MonadLogger Message m
-            , MonadUniqueSupply m
+            , UniqueMonad m
             ) => ([Stmt a], IdentMap b) -> m (Substitution, Type)
 inferType (stmts, symtab) = HM.inferType =<< runSymtabT (toExp stmts) symtab
 
@@ -50,7 +50,7 @@ toExp :: ( Data a
         , Monoid a
         , HasCallSet b
         , MonadSymtab b m
-        , MonadUniqueSupply m
+        , UniqueMonad m
         ) => [Stmt a] -> m (HM.Exp a)
 toExp stmts =
   runReaderT' (mconcat' $ map extract stmts) $
@@ -69,7 +69,7 @@ stmtsToExp :: ( Data a
              , HasCallSet b
              , MonadReader a m
              , MonadSymtab b m
-             , MonadUniqueSupply m
+             , UniqueMonad m
              ) => [Stmt a] -> WithIdentT m (HM.Exp a)
 stmtsToExp [] =
   return' undefined'
@@ -139,7 +139,7 @@ exprToExp :: ( Data a
             , HasCallSet b
             , MonadReader a m
             , MonadSymtab b m
-            , MonadUniqueSupply m
+            , UniqueMonad m
             ) => Expr a -> WithIdentT m (HM.Exp a)
 exprToExp e =
   local' (extract e) $
@@ -162,7 +162,7 @@ funToExp :: ( Data a
            , HasCallSet b
            , MonadReader a m
            , MonadSymtab b m
-           , MonadUniqueSupply m
+           , UniqueMonad m
            ) => [Name] -> [Stmt a] -> m (HM.Exp a)
 funToExp (map ident -> x) stmts =
   absE (tupleP x) $
@@ -175,7 +175,7 @@ blockToExp :: ( Data a
              , HasCallSet b
              , MonadReader a m
              , MonadSymtab b m
-             , MonadUniqueSupply m
+             , UniqueMonad m
              ) => [Stmt a] -> WithIdentT m (HM.Exp a)
 blockToExp stmts =
   local' (mconcat' (map extract stmts)) .
@@ -207,7 +207,7 @@ blockToExp stmts =
                  , HasCallSet b
                  , MonadReader a m
                  , MonadSymtab b m
-                 , MonadUniqueSupply m
+                 , UniqueMonad m
                  ) => [Stmt a] -> m [(m (HM.Exp a), Ident, [Ident])]
     callGraphM =
       everythingThisScope append $
@@ -216,12 +216,12 @@ blockToExp stmts =
         append = liftM2 (<>)
 
         queryStmt :: Stmt a -> m [(m (HM.Exp a), Ident, [Ident])]
-        queryStmt stmt'@(view -> FunDeclS (ident -> x) params stmts) = do
+        queryStmt stmt'@(view -> FunDeclS (ident -> x) params stmts') = do
           symtab <- askSymtab
           return [(local' r e, x, IdentSet.toList . callSet $ symtab !x)]
           where
             r = extract stmt'
-            e = funToExp params stmts
+            e = funToExp params stmts'
         queryStmt _ =
           return mempty
 
@@ -259,7 +259,7 @@ instance MonadReader r m => MonadReader r (WithIdentT m) where
 
 deriving instance MonadWriter w m => MonadWriter w (WithIdentT m)
 
-instance MonadUniqueSupply m => MonadUniqueSupply (WithIdentT m) where
+instance UniqueMonad m => UniqueMonad (WithIdentT m) where
   freshUnique = lift freshUnique
 
 instance MonadSymtab r m => MonadSymtab r (WithIdentT m) where

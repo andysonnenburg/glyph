@@ -21,7 +21,10 @@ import qualified Language.Haskell.TH as TH
 
 newtype Ident
   = Ident { unIdent :: Unique
-          } deriving (Show, Eq, Ord, Typeable)
+          } deriving (Eq, Ord, Typeable)
+
+instance Show Ident where
+  show = ('$':) . show . unIdent
 
 instance Data Ident where
   gfoldl _f z = z

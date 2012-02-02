@@ -76,7 +76,7 @@ inferExp = go
     go gamma e =
       runReaderT (w gamma (view e)) (location e)
     w gamma (VarE x) = do
-      let sigma = gamma !x
+      let sigma = gamma ! x
       tau <- instantiate sigma
       return (mempty, tau)
     w gamma (AbsE p e) = do

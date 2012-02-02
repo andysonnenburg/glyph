@@ -23,12 +23,14 @@ import Control.Monad.Reader
 import Control.Monad.Writer
 
 import Data.Maybe
+import Data.Function
 import Data.Typeable
 
 import Language.Glyph.Hoopl.ConstProp
 import Language.Glyph.Hoopl.RemoveUnreachable
 import Language.Glyph.Hoopl.Simplify
 import Language.Glyph.Hoopl.Syntax as X
+import Language.Glyph.Ident
 import Language.Glyph.Syntax as X hiding (Stmt,
                                           StmtView (..),
                                           Expr,
@@ -129,139 +131,121 @@ fromStmt :: forall a m .
 fromStmt (Glyph.Stmt a x) =
   case x of
     Glyph.ExprS expr -> do
-      R { maybeCatchLabel } <- ask
-      case maybeCatchLabel of
-        Nothing ->
-          liftM mkMiddle $ stmtM $
-            ExprS <$> fromExpr expr <*> pure NothingC
-        Just catchLabel -> do
-          nextLabel <- freshLabel
-          last <- liftM mkLast $ stmtM $
-            ExprS <$> fromExpr expr <*> pure (JustC (nextLabel, catchLabel))
-          let first = mkLabel nextLabel
-          return $ last |*><*| first
+      (expr', W graph) <- runWriterT $ fromExpr expr
+      graph' <- mkMiddle <$> fromStmtView (ExprS expr')
+      return $ graph |<*>| graph'
     Glyph.VarDeclS name Nothing ->
-      liftM mkMiddle $ stmtM' $
-        VarDeclS name UndefinedO
+      liftM mkMiddle $ fromStmtView $ VarDeclS name Nothing
     Glyph.VarDeclS name (Just expr) -> do
-      R { maybeCatchLabel } <- ask
-      case maybeCatchLabel of
-        Nothing ->
-          liftM mkMiddle $ stmtM $
-            VarDeclS name . ExprO <$> fromExpr expr
-        Just catchLabel -> do
-          nextLabel <- freshLabel
-          stmt <- stmtM $ do
-            expr' <- fromExpr expr
-            return $ VarDeclS name $ ExprC expr' nextLabel catchLabel
-          let last = mkLast stmt
-              first = mkLabel nextLabel
-          return $ last |*><*| first
+      (expr', W graph) <- runWriterT $ fromExpr expr
+      graph' <- mkMiddle <$> fromStmtView (VarDeclS name $ Just expr')
+      return $ graph |<*>| graph'
     Glyph.FunDeclS name params stmts ->
-      liftM mkMiddle $ stmtM $
-        FunDeclS name params <$> toGraph stmts
-    Glyph.ReturnS expr -> do
-      last <- liftM mkLast $ stmtM $ do
-        expr' <- maybe (litE VoidL) fromExpr expr
-        asks $ ReturnS expr' . maybeCatchLabel
-      first <- freshLabel'
-      return $ last |*><*| first
+      mkMiddle <$> (fromStmtView =<< FunDeclS name params <$> toGraph stmts)
+    Glyph.ReturnS (Just expr) -> do
+      (expr', W graph) <- runWriterT $ fromExpr expr
+      graph' <- mkLast <$> (fromStmtView =<< ReturnS expr' <$> asks maybeCatchLabel)
+      graph'' <- freshLabel'
+      return $ graph |<*>| graph' |*><*| graph''
     Glyph.IfThenElseS expr stmt Nothing -> do
+      (expr', W graph) <- runWriterT $ fromExpr expr
       thenLabel <- freshLabel
       nextLabel <- freshLabel
-      if' <- liftM mkLast $ stmtM $ do
-        expr' <- fromExpr expr
-        asks $ IfS expr' thenLabel nextLabel . maybeCatchLabel
-      stmtGraph <- local' $ fromStmt stmt
-      let then' = mkLabel thenLabel |<*>| stmtGraph |<*>| mkBranch nextLabel
-          first = mkLabel nextLabel
-      return $ if' |*><*| then' |*><*| first
+      if' <- mkLast <$> fromStmtView (IfS expr' thenLabel nextLabel)
+      stmt' <- fromStmt stmt
+      let then' = mkLabel thenLabel |<*>| stmt' |<*>| mkBranch nextLabel
+          next = mkLabel nextLabel
+      return $ graph |<*>| if' |*><*| then' |*><*| next
     Glyph.IfThenElseS expr stmt1 (Just stmt2) -> do
+      (expr', W graph) <- runWriterT $ fromExpr expr
       thenLabel <- freshLabel
       elseLabel <- freshLabel
-      if' <- liftM mkLast $ stmtM $ do
-        expr' <- fromExpr expr
-        asks $ IfS expr' thenLabel elseLabel . maybeCatchLabel
+      if' <- mkLast <$> fromStmtView (IfS expr' thenLabel elseLabel)
       nextLabel <- freshLabel
-      stmt1' <- local' $ fromStmt stmt1
+      stmt1' <- fromStmt stmt1
       let then' = mkLabel thenLabel |<*>| stmt1' |<*>| mkBranch nextLabel
-      stmt2' <- local' $ fromStmt stmt2
+      stmt2' <- fromStmt stmt2
       let else' = mkLabel elseLabel |<*>| stmt2' |<*>| mkBranch nextLabel
-          first = mkLabel nextLabel
-      return $ if' |*><*| then' |*><*| else' |*><*| first
+          next = mkLabel nextLabel
+      return $ graph |<*>| if' |*><*| then' |*><*| else' |*><*| next
     Glyph.WhileS expr stmt -> do
       testLabel <- freshLabel
+      (expr', W graph) <- runWriterT $ fromExpr expr
       bodyLabel <- freshLabel
       nextLabel <- freshLabel
-      if' <- liftM mkLast $ stmtM $ do
-        expr' <- fromExpr expr
-        asks $ IfS expr' bodyLabel nextLabel . maybeCatchLabel
-      let test = mkLabel testLabel |<*>| if'
-      stmtGraph <- local' $ localLoopLabels nextLabel testLabel $ fromStmt stmt
-      let body = mkLabel bodyLabel |<*>| stmtGraph |<*>| mkBranch testLabel
+      if' <- mkLast <$> fromStmtView (IfS expr' bodyLabel nextLabel)
+      let test = mkLabel testLabel |<*>| graph |<*>| if'
+      stmt' <- localLoopLabels nextLabel testLabel $ fromStmt stmt
+      let body = mkLabel bodyLabel |<*>| stmt' |<*>| mkBranch testLabel
           next = mkLabel nextLabel
       return $ mkBranch testLabel |*><*| test |*><*| body |*><*| next
     Glyph.BreakS -> do
-      last <- mkBranch <$> askBreakLabel
-      first <- freshLabel'
-      return $ last |*><*| first
+      graph <- mkBranch <$> askBreakLabel
+      graph' <- freshLabel'
+      return $ graph |*><*| graph'
     Glyph.ContinueS -> do
-      last <- mkBranch <$> askContinueLabel
-      first <- freshLabel'
-      return $ last |*><*| first
+      graph <- mkBranch <$> askContinueLabel
+      graph' <- freshLabel'
+      return $ graph |*><*| graph'
     Glyph.ThrowS expr -> do
-      last <- liftM mkLast $ stmtM $ ThrowS <$> fromExpr expr <*> asks maybeCatchLabel
-      first <- freshLabel'
-      return $ last |*><*| first
+      (expr', W graph) <- runWriterT $ fromExpr expr
+      graph' <- mkLast <$> (fromStmtView =<< ThrowS expr' <$> asks maybeCatchLabel)
+      graph'' <- freshLabel'
+      return $ graph |<*>| graph' |*><*| graph''
     Glyph.BlockS stmts' ->
-      local' $ catGraphs <$> mapM fromStmt stmts'
+      catGraphs <$> mapM fromStmt stmts'
   where
-    stmtM :: m (StmtView a x) -> m (Stmt a O x)
-    stmtM =
-      local' >=> stmtM'
-    
-    stmtM' :: StmtView a x -> m (Stmt a O x)
-    stmtM' =
+    fromStmtView :: StmtView a x -> m (Stmt a O x)
+    fromStmtView =
       return . Stmt a
-
+    
     freshLabel' =
       mkLabel <$> freshLabel
-
-    local' :: forall a' . m a' -> m a'
-    local' =
-      local (\ r' -> r' { annotation = a })
-    
-litE :: MonadReader (R a) m => Lit -> m (Expr a)
-litE lit = Expr <$> asks annotation <*> pure (LitE lit)
 
 fromExpr :: ( Monoid a
           , MonadError HooplException m
           , MonadReader (R a) m
+          , MonadWriter (W a) m
           , UniqueMonad m
-          ) => Glyph.Expr a -> m (Expr a)
+          ) => Glyph.Expr a -> m ExprIdent
 fromExpr (Glyph.Expr a v) =
-  exprM $ case v of
+  case v of
     Glyph.LitE lit ->
-      pure $ LitE lit
+      fromExprView $ LitE lit
     Glyph.NotE expr ->
-      NotE <$> fromExpr expr
+      fromExprView . NotE =<< fromExpr expr
     Glyph.VarE name ->
-      pure $ VarE name
+      fromExprView $ VarE name
     Glyph.FunE x params stmts ->
-      FunE x params <$> toGraph stmts
-    Glyph.ApplyE expr exprs ->
-      ApplyE <$> fromExpr expr <*> mapM fromExpr exprs
+      fromExprView . FunE x params =<< toGraph stmts
+    Glyph.ApplyE expr exprs -> do
+      x <- fromExpr expr
+      xs <- mapM fromExpr exprs
+      fromExprView $ ApplyE x xs
     Glyph.AssignE name expr ->
-      AssignE name <$> fromExpr expr
+      fromExprView . AssignE name =<< fromExpr expr 
   where
-    exprM =
-      liftM (Expr a) . local'
-    
-    local' =
-      local (\ r -> r { annotation = a })
+    fromExprView v' = do
+      x <- freshIdent
+      R { maybeCatchLabel } <- ask
+      case maybeCatchLabel of
+        Nothing ->
+          tell $ W $ mkMiddle $ Expr a x v' NothingC
+        Just catchLabel -> do
+          nextLabel <- freshLabel
+          let last = mkLast $ Expr a x v' $ JustC (nextLabel, catchLabel)
+              first = mkLabel nextLabel
+          tell $ W $ last |*><*| first
+      return x
 
 showGraph' :: Graph (Stmt a) e x -> String
 showGraph' = show . prettyGraph
+
+newtype W a = W (Graph (Stmt a) O O)
+
+instance Monoid (W a) where
+  mempty = W emptyGraph
+  W a `mappend` W b = W $ a |<*>| b
 
 (|<*>|) :: NonLocal n => Graph n e O -> Graph n O x -> Graph n e x
 (|<*>|) = (Hoopl.<*>)

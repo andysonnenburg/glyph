@@ -4,7 +4,6 @@
   , GADTs
   , GeneralizedNewtypeDeriving
   , NamedFieldPuns
-  , ScopedTypeVariables
   , TypeFamilies #-}
 module Language.Glyph.Hoopl
        ( module X
@@ -122,14 +121,13 @@ toGraph stmts = do
                   , fp_rewrite = simplify
                   }
 
-fromStmt :: forall a m .
-            ( Monoid a
+fromStmt :: ( Monoid a
             , MonadError HooplException m
             , MonadReader (R a) m
             , UniqueMonad m
             ) => Glyph.Stmt a -> m (Graph (Stmt a) O O)
 fromStmt (Glyph.Stmt a x) =
-  case x of
+  localA a $ case x of
     Glyph.ExprS expr -> do
       (expr', W graph) <- runWriterT $ fromExpr expr
       graph' <- mkMiddle <$> fromStmtView (ExprS expr')
@@ -142,11 +140,8 @@ fromStmt (Glyph.Stmt a x) =
       return $ graph |<*>| graph'
     Glyph.FunDeclS name params stmts ->
       mkMiddle <$> (fromStmtView =<< FunDeclS name params <$> toGraph stmts)
-    Glyph.ReturnS (Just expr) -> do
-      (expr', W graph) <- runWriterT $ fromExpr expr
-      graph' <- mkLast <$> (fromStmtView =<< ReturnS expr' <$> asks maybeCatchLabel)
-      graph'' <- freshLabel'
-      return $ graph |<*>| graph' |*><*| graph''
+    Glyph.ReturnS maybeExpr ->
+      fromReturnStmt $ maybe (fromExprView $ LitE VoidL) fromExpr maybeExpr
     Glyph.IfThenElseS expr stmt Nothing -> do
       (expr', W graph) <- runWriterT $ fromExpr expr
       thenLabel <- freshLabel
@@ -181,26 +176,32 @@ fromStmt (Glyph.Stmt a x) =
       return $ mkBranch testLabel |*><*| test |*><*| body |*><*| next
     Glyph.BreakS -> do
       graph <- mkBranch <$> askBreakLabel
-      graph' <- freshLabel'
+      graph' <- mkLabel <$> freshLabel
       return $ graph |*><*| graph'
     Glyph.ContinueS -> do
       graph <- mkBranch <$> askContinueLabel
-      graph' <- freshLabel'
+      graph' <- mkLabel <$> freshLabel
       return $ graph |*><*| graph'
     Glyph.ThrowS expr -> do
       (expr', W graph) <- runWriterT $ fromExpr expr
       graph' <- mkLast <$> (fromStmtView =<< ThrowS expr' <$> asks maybeCatchLabel)
-      graph'' <- freshLabel'
+      graph'' <- mkLabel <$> freshLabel
       return $ graph |<*>| graph' |*><*| graph''
     Glyph.BlockS stmts' ->
       catGraphs <$> mapM fromStmt stmts'
   where
-    fromStmtView :: StmtView a x -> m (Stmt a O x)
-    fromStmtView =
-      return . Stmt a
-    
-    freshLabel' =
-      mkLabel <$> freshLabel
+    fromReturnStmt exprM = do
+      (expr', W graph) <- runWriterT exprM
+      graph' <- mkLast <$> (fromStmtView =<< ReturnS expr' <$> asks maybeCatchLabel)
+      graph'' <- mkLabel <$> freshLabel
+      return $ graph |<*>| graph' |*><*| graph''
+      
+
+
+fromStmtView :: MonadReader (R a) m => StmtView a x -> m (Stmt a O x)
+fromStmtView v = do
+  a <- askA
+  return $ Stmt a v
 
 fromExpr :: ( Monoid a
           , MonadError HooplException m
@@ -209,7 +210,7 @@ fromExpr :: ( Monoid a
           , UniqueMonad m
           ) => Glyph.Expr a -> m ExprIdent
 fromExpr (Glyph.Expr a v) =
-  case v of
+  localA a $ case v of
     Glyph.LitE lit ->
       fromExprView $ LitE lit
     Glyph.NotE expr ->
@@ -223,20 +224,32 @@ fromExpr (Glyph.Expr a v) =
       xs <- mapM fromExpr exprs
       fromExprView $ ApplyE x xs
     Glyph.AssignE name expr ->
-      fromExprView . AssignE name =<< fromExpr expr 
-  where
-    fromExprView v' = do
-      x <- freshIdent
-      R { maybeCatchLabel } <- ask
-      case maybeCatchLabel of
-        Nothing ->
-          tell $ W $ mkMiddle $ Expr a x v' NothingC
-        Just catchLabel -> do
-          nextLabel <- freshLabel
-          let last = mkLast $ Expr a x v' $ JustC (nextLabel, catchLabel)
-              first = mkLabel nextLabel
-          tell $ W $ last |*><*| first
-      return x
+      fromExprView . AssignE name =<< fromExpr expr
+
+fromExprView :: ( MonadReader (R a) m
+                , MonadWriter (W a) m
+                , UniqueMonad m
+                ) => ExprView a -> m ExprIdent
+fromExprView v = do
+  x <- freshIdent
+  R { maybeCatchLabel } <- ask
+  case maybeCatchLabel of
+    Nothing -> do
+      a <- askA
+      tell $ W $ mkMiddle $ Expr a x v NothingC
+    Just catchLabel -> do
+      a <- askA
+      nextLabel <- freshLabel
+      let last = mkLast $ Expr a x v $ JustC (nextLabel, catchLabel)
+          first = mkLabel nextLabel
+      tell $ W $ last |*><*| first
+  return x
+
+localA :: MonadReader (R a) m => a -> m b -> m b
+localA a = local (\ r -> r { annotation = a })
+
+askA :: MonadReader (R a) m => m a
+askA = asks annotation
 
 showGraph' :: Graph (Stmt a) e x -> String
 showGraph' = show . prettyGraph

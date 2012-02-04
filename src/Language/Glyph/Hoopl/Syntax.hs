@@ -27,7 +27,7 @@ data Stmt a e x where
   Expr :: a -> ExprIdent -> ExprView a -> MaybeC x (Label, Label) -> Stmt a O x
   Label :: Label -> Stmt a C O
   Goto :: Label -> Stmt a O C
-  Catch :: Ident -> Label -> Stmt a C O
+  Catch :: ExprIdent -> Label -> Stmt a C O
   ReturnVoid :: Stmt a O C
 
 instance Show (Stmt a e x) where
@@ -44,7 +44,7 @@ data StmtView a x where
 data ExprView a where
   LitE :: Lit -> ExprView a
   NotE :: ExprIdent -> ExprView a
-  VarE :: Ident -> Maybe NameView -> ExprView a
+  VarE :: Name -> ExprView a
   FunE :: Ident -> [Name] -> Graph (Stmt a) O C -> ExprView a
   ApplyE :: ExprIdent -> [ExprIdent] -> ExprView a
   AssignE :: Name -> ExprIdent -> ExprView a
@@ -162,10 +162,8 @@ instance Pretty (ExprView a) where
         pretty lit
       go (NotE x) =
         char '!' <> prettyIdent x
-      go (VarE _ (Just nameView)) =
-        prettyNameView nameView
-      go (VarE x Nothing) =
-        prettyIdent x
+      go (VarE name) =
+        pretty name
       go (FunE _ params graph) =
         text "fn" <+> tupled (map pretty params) <+> lbrace <>
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>

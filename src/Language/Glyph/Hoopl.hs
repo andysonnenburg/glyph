@@ -86,7 +86,7 @@ askContinueLabel = do
   maybe (throwError IllegalContinue) (return . snd) maybeLoopLabels
 
 localLoop :: MonadReader (R a) m => Label -> Label -> m a' -> m a'
-localLoop breakLabel continueLabel = do
+localLoop breakLabel continueLabel =
   local (\ r -> r { beforeLoopBranch = return emptyGraph, maybeLoopLabels })
   where
     maybeLoopLabels = mkLoopLabels breakLabel continueLabel
@@ -154,9 +154,9 @@ fromStmt (Glyph.Stmt a x) =
       return $ graph |<*>| graph'
     Glyph.FunDeclS name params stmts ->
       mkMiddle <$> (fromStmtView =<< FunDeclS name params <$> toGraph stmts)
-    Glyph.ReturnS Nothing -> do
+    Glyph.ReturnS Nothing ->
       fromReturnStmt $ fromExprView $ LitE VoidL
-    Glyph.ReturnS (Just expr) -> do
+    Glyph.ReturnS (Just expr) ->
       fromReturnStmt $ fromExpr expr
     Glyph.IfThenElseS expr stmt Nothing -> do
       (expr', W graph) <- runWriterT $ fromExpr expr
@@ -210,17 +210,22 @@ fromStmt (Glyph.Stmt a x) =
     Glyph.TryFinallyS  stmt1 (Just stmt2) -> do
       r <- ask
       catchLabel <- freshLabel
-      local (\ r' -> r' { beforeLoopBranch = do
-                             graph <- local (const r) $ fromStmt stmt2
-                             graph' <- beforeLoopBranch r'
-                             return $ graph |<*>| graph'
-                        , beforeReturn = do
-                             graph <- local (const r) $ fromStmt stmt2
-                             graph' <- beforeReturn r'
-                             return $ graph |<*>| graph'
-                        , maybeCatchLabel =
-                             Just catchLabel
-                        }) $ fromStmt stmt1
+      graph <- local (\ r' -> r' { beforeLoopBranch = do
+                                      graph <- local (const r) $ fromStmt stmt2
+                                      graph' <- beforeLoopBranch r'
+                                      return $ graph |<*>| graph'
+                                 , beforeReturn = do
+                                      graph <- local (const r) $ fromStmt stmt2
+                                      graph' <- beforeReturn r'
+                                      return $ graph |<*>| graph'
+                                 , maybeCatchLabel =
+                                      Just catchLabel
+                                 }) $ fromStmt stmt1
+      nextLabel <- freshLabel
+      let graph' = mkBranch nextLabel
+          graph'' = mkLabel catchLabel
+      graph''' <- fromStmt stmt2
+      return $ graph |<*>| graph' |*><*| graph'' |<*>| graph'''
     Glyph.BlockS stmts' ->
       catGraphs <$> mapM fromStmt stmts'
   where

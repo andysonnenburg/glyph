@@ -14,7 +14,11 @@ import Data.Foldable (Foldable, toList)
 import Data.Maybe
 
 import Language.Glyph.Ident
-import Language.Glyph.Syntax as X (Lit (..), Name, ident)
+import Language.Glyph.Syntax as X (Lit (..),
+                                   Name,
+                                   NameView,
+                                   ident,
+                                   prettyNameView)
 
 import Text.PrettyPrint.Free hiding (encloseSep, tupled)
 
@@ -40,7 +44,7 @@ data StmtView a x where
 data ExprView a where
   LitE :: Lit -> ExprView a
   NotE :: ExprIdent -> ExprView a
-  VarE :: Name -> ExprView a
+  VarE :: Ident -> Maybe NameView -> ExprView a
   FunE :: Ident -> [Name] -> Graph (Stmt a) O C -> ExprView a
   ApplyE :: ExprIdent -> [ExprIdent] -> ExprView a
   AssignE :: Name -> ExprIdent -> ExprView a
@@ -158,8 +162,10 @@ instance Pretty (ExprView a) where
         pretty lit
       go (NotE x) =
         char '!' <> prettyIdent x
-      go (VarE name) =
-        pretty name
+      go (VarE _ (Just nameView)) =
+        prettyNameView nameView
+      go (VarE x Nothing) =
+        prettyIdent x
       go (FunE _ params graph) =
         text "fn" <+> tupled (map pretty params) <+> lbrace <>
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>

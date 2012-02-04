@@ -208,9 +208,17 @@ fromStmt (Glyph.Stmt a x) =
                                  }) $ fromStmt stmt1
       nextLabel <- freshLabel
       let graph' = mkBranch nextLabel
-          graph'' = mkLabel catchLabel
-      graph''' <- fromStmt stmt2
-      return $ graph |<*>| graph' |*><*| graph'' |<*>| graph'''
+      graph'' <- do
+        e <- freshIdent
+        let first = mkFirst $ Catch e catchLabel
+        (e', middle) <- do
+          graph <- fromStmt stmt2
+          (e', W graph') <- runWriterT $ fromExprView $ VarE e Nothing
+          return (e', graph |<*>| graph')
+        last <- mkLast <$> (fromStmtView =<< ThrowS e' <$> asks maybeCatchLabel)
+        return $ first |<*>| middle |<*>| last
+      let graph''' = mkLabel nextLabel
+      return $ graph |<*>| graph' |*><*| graph'' |*><*| graph'''
     Glyph.BlockS stmts' ->
       catGraphs <$> mapM fromStmt stmts'
   where
@@ -241,7 +249,7 @@ fromExpr (Glyph.Expr a v) =
     Glyph.NotE expr ->
       fromExprView . NotE =<< fromExpr expr
     Glyph.VarE name ->
-      fromExprView $ VarE name
+      fromExprView $ VarE (ident name) $ Just $ view name
     Glyph.FunE x params stmts ->
       fromExprView . FunE x params =<< toGraph stmts
     Glyph.ApplyE expr exprs -> do

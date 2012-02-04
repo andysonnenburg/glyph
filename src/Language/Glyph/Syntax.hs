@@ -8,6 +8,7 @@ module Language.Glyph.Syntax
        , NameView
        , view
        , ident
+       , prettyNameView
        ) where
 
 import Language.Glyph.Syntax.Internal

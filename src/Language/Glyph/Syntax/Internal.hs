@@ -14,6 +14,7 @@ module Language.Glyph.Syntax.Internal
        , Name (..)
        , NameView
        , ident
+       , prettyNameView
        ) where
 
 import Control.Comonad
@@ -73,9 +74,12 @@ instance Show Lit where
 data Name = Name Ident NameView deriving (Show, Typeable, Data)
 
 instance Pretty Name where
-  pretty = pretty . text . Text.unpack . view
+  pretty = prettyNameView . view
 
 type NameView = Text
+
+prettyNameView :: NameView -> Doc e
+prettyNameView = pretty . text . Text.unpack
 
 instance View (Stmt a) (StmtView a) where
   view (Stmt _ x) = x

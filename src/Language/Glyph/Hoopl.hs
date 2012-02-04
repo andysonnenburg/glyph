@@ -4,6 +4,7 @@
   , GADTs
   , GeneralizedNewtypeDeriving
   , NamedFieldPuns
+  , RankNTypes
   , TypeFamilies #-}
 module Language.Glyph.Hoopl
        ( module X
@@ -60,6 +61,16 @@ instance Error HooplException where
 
 data R a
   = R { annotation :: a
+      , beforeLoopBranch :: forall m .
+                            ( MonadError HooplException m
+                            , MonadReader (R a) m
+                            , UniqueMonad m
+                            ) => m (Graph (Stmt a) O O)
+      , beforeReturn :: forall m .
+                        ( MonadError HooplException m
+                        , MonadReader (R a) m
+                        , UniqueMonad m
+                        ) => m (Graph (Stmt a) O O)
       , maybeCatchLabel :: Maybe Label
       , maybeLoopLabels :: Maybe (Label, Label)
       }
@@ -74,8 +85,9 @@ askContinueLabel = do
   R { maybeLoopLabels } <- ask
   maybe (throwError IllegalContinue) (return . snd) maybeLoopLabels
 
-localLoopLabels :: MonadReader (R a) m => Label -> Label -> m a' -> m a'
-localLoopLabels breakLabel continueLabel = local (\ r -> r { maybeLoopLabels })
+localLoop :: MonadReader (R a) m => Label -> Label -> m a' -> m a'
+localLoop breakLabel continueLabel = do
+  local (\ r -> r { beforeLoopBranch = return emptyGraph, maybeLoopLabels })
   where
     maybeLoopLabels = mkLoopLabels breakLabel continueLabel
 
@@ -106,6 +118,8 @@ toGraph stmts = do
     fst3 <$> analyzeAndRewriteFwdOx fwd graph' mempty
   where
     r = R { annotation = mconcat $ map extract stmts
+          , beforeLoopBranch = return emptyGraph
+          , beforeReturn = return emptyGraph
           , maybeCatchLabel = Nothing
           , maybeLoopLabels = Nothing
           }
@@ -140,8 +154,10 @@ fromStmt (Glyph.Stmt a x) =
       return $ graph |<*>| graph'
     Glyph.FunDeclS name params stmts ->
       mkMiddle <$> (fromStmtView =<< FunDeclS name params <$> toGraph stmts)
-    Glyph.ReturnS maybeExpr ->
-      fromReturnStmt $ maybe (fromExprView $ LitE VoidL) fromExpr maybeExpr
+    Glyph.ReturnS Nothing -> do
+      fromReturnStmt $ fromExprView $ LitE VoidL
+    Glyph.ReturnS (Just expr) -> do
+      fromReturnStmt $ fromExpr expr
     Glyph.IfThenElseS expr stmt Nothing -> do
       (expr', W graph) <- runWriterT $ fromExpr expr
       thenLabel <- freshLabel
@@ -170,31 +186,50 @@ fromStmt (Glyph.Stmt a x) =
       nextLabel <- freshLabel
       if' <- mkLast <$> fromStmtView (IfS expr' bodyLabel nextLabel)
       let test = mkLabel testLabel |<*>| graph |<*>| if'
-      stmt' <- localLoopLabels nextLabel testLabel $ fromStmt stmt
+      stmt' <- localLoop nextLabel testLabel $ fromStmt stmt
       let body = mkLabel bodyLabel |<*>| stmt' |<*>| mkBranch testLabel
           next = mkLabel nextLabel
       return $ mkBranch testLabel |*><*| test |*><*| body |*><*| next
     Glyph.BreakS -> do
-      graph <- mkBranch <$> askBreakLabel
-      graph' <- mkLabel <$> freshLabel
-      return $ graph |*><*| graph'
+      graph <- join $ asks beforeLoopBranch
+      graph' <- mkBranch <$> askBreakLabel
+      graph'' <- mkLabel <$> freshLabel
+      return $ graph |<*>| graph' |*><*| graph''
     Glyph.ContinueS -> do
-      graph <- mkBranch <$> askContinueLabel
-      graph' <- mkLabel <$> freshLabel
-      return $ graph |*><*| graph'
+      graph <- join $ asks beforeLoopBranch
+      graph' <- mkBranch <$> askContinueLabel
+      graph'' <- mkLabel <$> freshLabel
+      return $ graph |<*>| graph' |*><*| graph''
     Glyph.ThrowS expr -> do
       (expr', W graph) <- runWriterT $ fromExpr expr
       graph' <- mkLast <$> (fromStmtView =<< ThrowS expr' <$> asks maybeCatchLabel)
       graph'' <- mkLabel <$> freshLabel
       return $ graph |<*>| graph' |*><*| graph''
+    Glyph.TryFinallyS stmt Nothing ->
+      fromStmt stmt
+    Glyph.TryFinallyS  stmt1 (Just stmt2) -> do
+      r <- ask
+      catchLabel <- freshLabel
+      local (\ r' -> r' { beforeLoopBranch = do
+                             graph <- local (const r) $ fromStmt stmt2
+                             graph' <- beforeLoopBranch r'
+                             return $ graph |<*>| graph'
+                        , beforeReturn = do
+                             graph <- local (const r) $ fromStmt stmt2
+                             graph' <- beforeReturn r'
+                             return $ graph |<*>| graph'
+                        , maybeCatchLabel =
+                             Just catchLabel
+                        }) $ fromStmt stmt1
     Glyph.BlockS stmts' ->
       catGraphs <$> mapM fromStmt stmts'
   where
     fromReturnStmt exprM = do
       (expr', W graph) <- runWriterT exprM
-      graph' <- mkLast <$> (fromStmtView =<< ReturnS expr' <$> asks maybeCatchLabel)
-      graph'' <- mkLabel <$> freshLabel
-      return $ graph |<*>| graph' |*><*| graph''
+      graph' <- join $ asks beforeReturn
+      graph'' <- mkLast <$> fromStmtView (ReturnS expr')
+      graph''' <- mkLabel <$> freshLabel
+      return $ graph |<*>| graph' |<*>| graph'' |*><*| graph'''
       
 
 
@@ -204,11 +239,11 @@ fromStmtView v = do
   return $ Stmt a v
 
 fromExpr :: ( Monoid a
-          , MonadError HooplException m
-          , MonadReader (R a) m
-          , MonadWriter (W a) m
-          , UniqueMonad m
-          ) => Glyph.Expr a -> m ExprIdent
+            , MonadError HooplException m
+            , MonadReader (R a) m
+            , MonadWriter (W a) m
+            , UniqueMonad m
+            ) => Glyph.Expr a -> m ExprIdent
 fromExpr (Glyph.Expr a v) =
   localA a $ case v of
     Glyph.LitE lit ->

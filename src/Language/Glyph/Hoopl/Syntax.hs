@@ -23,7 +23,7 @@ data Stmt a e x where
   Expr :: a -> ExprIdent -> ExprView a -> MaybeC x (Label, Label) -> Stmt a O x
   Label :: Label -> Stmt a C O
   Goto :: Label -> Stmt a O C
-  Catch :: Maybe Name -> Label -> Stmt a C O
+  Catch :: Ident -> Label -> Stmt a C O
   ReturnVoid :: Stmt a O C
 
 instance Show (Stmt a e x) where
@@ -33,7 +33,7 @@ data StmtView a x where
   ExprS :: ExprIdent -> StmtView a O
   VarDeclS :: Name -> Maybe ExprIdent -> StmtView a O
   FunDeclS :: Name -> [Name] -> Graph (Stmt a) O C -> StmtView a O
-  ReturnS :: ExprIdent -> Maybe Label -> StmtView a C
+  ReturnS :: ExprIdent -> StmtView a C
   IfS :: ExprIdent -> Label -> Label -> StmtView a C
   ThrowS :: ExprIdent -> Maybe Label -> StmtView a C
 
@@ -87,33 +87,36 @@ instance Pretty (Stmt a e x) where
       go :: Stmt a e x -> Doc e'
       go (Stmt _ x) =
         pretty x
-      go (Expr _ x expr (JustC (nextLabel, _catchLabel))) =
-        prettyExpr x expr
-        `above`
-        prettyGoto nextLabel
+      go (Expr _ x expr (JustC (nextLabel, catchLabel))) =
+        prettyExpr x expr <+>
+        text "to" <+> prettyLabel nextLabel <+>
+        text "unwind" <+> prettyLabel catchLabel <>
+        semi
       go (Expr _ x expr NothingC) =
-        prettyExpr x expr
+        prettyExpr x expr <> semi
       go (Label label) =
         prettyLabel label <> colon
       go (Goto label) =
         prettyGoto label
-      go (Catch Nothing _label) =
-        text "catch" <+> parens (text "...") <> colon
-      go (Catch (Just name) _label) =
-        text "catch" <+> parens (pretty name) <> colon
+      go (Catch x label) =
+        prettyCatch (prettyIdent x) label
       go ReturnVoid =
         text "return" <+> pretty VoidL <> semi
       
+      prettyCatch :: Doc e' -> Label -> Doc e'
+      prettyCatch nameDoc label =
+        prettyLabel label <> colon <+> text "catch" <+> parens nameDoc
+      
       prettyExpr :: ExprIdent -> ExprView a -> Doc e'
       prettyExpr x expr =
-        text "let" <+> prettyExprIdent x <+> char '=' <+> pretty expr <> semi
+        text "let" <+> prettyIdent x <+> char '=' <+> pretty expr
 
 instance Pretty (StmtView a x) where
   pretty = go
     where
       go :: StmtView a x -> Doc e
       go (ExprS expr) =
-        prettyExprIdent expr <> semi
+        prettyIdent expr <> semi
       go (VarDeclS name Nothing) =
         varDecl name
       go (VarDeclS name (Just x)) =
@@ -122,19 +125,19 @@ instance Pretty (StmtView a x) where
         text "fn" <+> pretty name <> tupled (map pretty params) <+> lbrace <>
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>
         rbrace
-      go (ReturnS expr _maybeCatchLabel) =
-        text "return" <+> prettyExprIdent expr <> semi 
+      go (ReturnS expr) =
+        text "return" <+> prettyIdent expr <> semi 
       go (IfS expr then' else') =
-        text "if" <+> parens (prettyExprIdent expr) <+>
+        text "if" <+> parens (prettyIdent expr) <+>
         prettyLabel then' <+>
         prettyLabel else' <>
         semi
       go (ThrowS expr _maybeCatchLabel) =
-        text "throw" <+> prettyExprIdent expr <> semi
+        text "throw" <+> prettyIdent expr <> semi
       
       varDef :: Name -> ExprIdent -> Doc e
       varDef name x =
-        var name <+> char '=' <+> prettyExprIdent x  <> semi
+        var name <+> char '=' <+> prettyIdent x  <> semi
       
       varDecl :: Name -> Doc e
       varDecl name =
@@ -154,7 +157,7 @@ instance Pretty (ExprView a) where
       go (LitE lit) =
         pretty lit
       go (NotE x) =
-        char '!' <> prettyExprIdent x
+        char '!' <> prettyIdent x
       go (VarE name) =
         pretty name
       go (FunE _ params graph) =
@@ -162,12 +165,12 @@ instance Pretty (ExprView a) where
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>
         rbrace
       go (ApplyE expr exprs) =
-        prettyExprIdent expr <> tupled (map prettyExprIdent exprs)
+        prettyIdent expr <> tupled (map prettyIdent exprs)
       go (AssignE name x) =
-        pretty name <+> char '=' <+> prettyExprIdent x
+        pretty name <+> char '=' <+> prettyIdent x
 
-prettyExprIdent :: ExprIdent -> Doc e
-prettyExprIdent =
+prettyIdent :: Ident -> Doc e
+prettyIdent =
   text . show
 
 prettyLabel :: Label -> Doc e
@@ -195,14 +198,15 @@ instance NonLocal (Stmt a) where
       stmtSuccessors = go
         where
           go (Stmt _ x) = stmtViewSuccessors x
+          go (Expr _ _ _ (JustC (next, catch'))) = [next, catch']
           go (Goto label) = [label]
           go ReturnVoid = []
       
       stmtViewSuccessors = go
         where
           go :: StmtView a C -> [Label]
-          go (ReturnS _ maybeCatchLabel') =
-            maybeToList maybeCatchLabel'
+          go (ReturnS _) =
+            []
           go (IfS _ thenLabel elseLabel) =
             [thenLabel, elseLabel]
           go (ThrowS _ maybeCatchLabel') =

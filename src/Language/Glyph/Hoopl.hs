@@ -59,22 +59,6 @@ instance Error HooplException where
   strMsg = StrMsgError
   noMsg = NoMsgError
 
-data R a
-  = R { annotation :: a
-      , beforeLoopBranch :: forall m .
-                            ( MonadError HooplException m
-                            , MonadReader (R a) m
-                            , UniqueMonad m
-                            ) => m (Graph (Stmt a) O O)
-      , beforeReturn :: forall m .
-                        ( MonadError HooplException m
-                        , MonadReader (R a) m
-                        , UniqueMonad m
-                        ) => m (Graph (Stmt a) O O)
-      , maybeCatchLabel :: Maybe Label
-      , maybeLoopLabels :: Maybe (Label, Label)
-      }
-
 askBreakLabel :: (MonadError HooplException m, MonadReader (R a) m) => m Label
 askBreakLabel = do
   R { maybeLoopLabels } <- ask
@@ -87,8 +71,9 @@ askContinueLabel = do
 
 localLoop :: MonadReader (R a) m => Label -> Label -> m a' -> m a'
 localLoop breakLabel continueLabel =
-  local (\ r -> r { beforeLoopBranch = return emptyGraph, maybeLoopLabels })
+  local updateR
   where
+    updateR r = r { finallyM = (emptyGraphM, snd (finallyM r)), maybeLoopLabels }
     maybeLoopLabels = mkLoopLabels breakLabel continueLabel
 
 mkLoopLabels :: Label -> Label -> Maybe (Label, Label)
@@ -118,8 +103,7 @@ toGraph stmts = do
     fst3 <$> analyzeAndRewriteFwdOx fwd graph' mempty
   where
     r = R { annotation = mconcat $ map extract stmts
-          , beforeLoopBranch = return emptyGraph
-          , beforeReturn = return emptyGraph
+          , finallyM = (emptyGraphM, emptyGraphM)
           , maybeCatchLabel = Nothing
           , maybeLoopLabels = Nothing
           }
@@ -191,12 +175,12 @@ fromStmt (Glyph.Stmt a x) =
           next = mkLabel nextLabel
       return $ mkBranch testLabel |*><*| test |*><*| body |*><*| next
     Glyph.BreakS -> do
-      graph <- join $ asks beforeLoopBranch
+      graph <- join $ asks $ fst . finallyM
       graph' <- mkBranch <$> askBreakLabel
       graph'' <- mkLabel <$> freshLabel
       return $ graph |<*>| graph' |*><*| graph''
     Glyph.ContinueS -> do
-      graph <- join $ asks beforeLoopBranch
+      graph <- join $ asks $ fst . finallyM
       graph' <- mkBranch <$> askContinueLabel
       graph'' <- mkLabel <$> freshLabel
       return $ graph |<*>| graph' |*><*| graph''
@@ -209,15 +193,16 @@ fromStmt (Glyph.Stmt a x) =
       fromStmt stmt
     Glyph.TryFinallyS  stmt1 (Just stmt2) -> do
       r <- ask
+      let updateR = const r
       catchLabel <- freshLabel
-      graph <- local (\ r' -> r' { beforeLoopBranch = do
-                                      graph <- local (const r) $ fromStmt stmt2
-                                      graph' <- beforeLoopBranch r'
-                                      return $ graph |<*>| graph'
-                                 , beforeReturn = do
-                                      graph <- local (const r) $ fromStmt stmt2
-                                      graph' <- beforeReturn r'
-                                      return $ graph |<*>| graph'
+      graph <- local (\ r' -> r' { finallyM =
+                                      let m = local updateR $ fromStmt stmt2
+                                      in (do graph <- m
+                                             graph' <- fst $ finallyM r'
+                                             return $ graph |<*>| graph',
+                                          do graph <- m
+                                             graph' <- snd $ finallyM r'
+                                             return $ graph |<*>| graph')
                                  , maybeCatchLabel =
                                       Just catchLabel
                                  }) $ fromStmt stmt1
@@ -231,7 +216,7 @@ fromStmt (Glyph.Stmt a x) =
   where
     fromReturnStmt exprM = do
       (expr', W graph) <- runWriterT exprM
-      graph' <- join $ asks beforeReturn
+      graph' <- join $ asks $ snd . finallyM
       graph'' <- mkLast <$> fromStmtView (ReturnS expr')
       graph''' <- mkLabel <$> freshLabel
       return $ graph |<*>| graph' |<*>| graph'' |*><*| graph'''
@@ -294,11 +279,25 @@ askA = asks annotation
 showGraph' :: Graph (Stmt a) e x -> String
 showGraph' = show . prettyGraph
 
+data R a
+  = R { annotation :: a
+      , finallyM :: forall m .
+                    ( MonadError HooplException m
+                    , MonadReader (R a) m
+                    , UniqueMonad m
+                    ) => (m (Graph (Stmt a) O O), m (Graph (Stmt a) O O))
+      , maybeCatchLabel :: Maybe Label
+      , maybeLoopLabels :: Maybe (Label, Label)
+      }
+
 newtype W a = W (Graph (Stmt a) O O)
 
 instance Monoid (W a) where
   mempty = W emptyGraph
   W a `mappend` W b = W $ a |<*>| b
+
+emptyGraphM :: Monad m => m (Graph (Stmt a) O O)
+emptyGraphM = return emptyGraph
 
 (|<*>|) :: NonLocal n => Graph n e O -> Graph n O x -> Graph n e x
 (|<*>|) = (Hoopl.<*>)

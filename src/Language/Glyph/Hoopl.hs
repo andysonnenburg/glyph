@@ -115,7 +115,7 @@ toGraph stmts = do
     fst3 (x, _, _) = x
     
     fwd = FwdPass { fp_lattice = constLattice
-                  , fp_transfer = varIsLit
+                  , fp_transfer = identIsLit
                   , fp_rewrite = simplify
                   }
 

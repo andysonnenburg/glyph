@@ -1,15 +1,24 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs, ScopedTypeVariables #-}
 module Language.Glyph.Hoopl.Simplify
        ( simplify
        ) where
 
 import Compiler.Hoopl
 
+import Language.Glyph.Hoopl.ConstProp
 import Language.Glyph.Hoopl.Syntax
+import qualified Language.Glyph.IdentMap as Map
 
-simplify :: forall m f a . FuelMonad m => FwdRewrite m (Stmt a) f
-simplify = deepFwdRw rewrite
+simplify :: forall m a . FuelMonad m => FwdRewrite m (Stmt a) ConstFact
+simplify = deepFwdRw go
   where
-    rewrite :: Stmt a e x -> f -> m (Maybe (Graph (Stmt a) e x))
-    rewrite _ _ =
+    go :: Stmt a e x -> ConstFact -> m (Maybe (Graph (Stmt a) e x))
+    go (Stmt _ (IfS x true false)) fact =
+      return $
+      case Map.lookup x fact of
+        Just (PElem (BoolL bool)) ->
+          Just $ mkLast $ Goto $ if bool then true else false
+        _ ->
+          Nothing
+    go _ _ =
       return Nothing

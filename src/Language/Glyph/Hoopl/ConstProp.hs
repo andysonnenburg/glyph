@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, ScopedTypeVariables, ViewPatterns #-}
+{-# LANGUAGE GADTs, PatternGuards, ScopedTypeVariables, ViewPatterns #-}
 module Language.Glyph.Hoopl.ConstProp
        ( ConstFact
        , constLattice
@@ -11,10 +11,11 @@ import Compiler.Hoopl hiding (joinMaps)
 import Data.Maybe
 
 import Language.Glyph.Hoopl.Syntax
+import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as Map
 
-import Prelude hiding (last)
+import Prelude hiding (elem, last)
 
 type ConstFact = IdentMap (WithTop Lit)
 
@@ -50,6 +51,9 @@ identIsLit = mkFTransfer go
     go :: Stmt a e x -> ConstFact -> Fact x ConstFact
     go (Stmt _ (ExprS _)) fact =
       fact
+    go (Stmt _ (VarDeclS (ident -> x) (Just y))) fact
+      | Just (PElem lit) <- Map.lookup y fact =
+        Map.insert x (PElem lit) fact
     go (Stmt _ (VarDeclS {})) fact =
       fact
     go (Stmt _ (FunDeclS {})) fact =
@@ -84,14 +88,31 @@ identIsLit = mkFTransfer go
     fromExpr :: ExprIdent -> ExprView a -> ConstFact -> ConstFact
     fromExpr x (LitE lit) fact =
       Map.insert x (PElem lit) fact
-    fromExpr x (AssignE (ident -> y) _) fact =
-      Map.insert x Top (Map.insert y Top fact)
+    fromExpr x (AssignE (ident -> y) z) fact
+      | Just elem@(PElem _) <- Map.lookup z fact =
+        Map.insert x elem (Map.insert y elem fact)
+      | otherwise =
+        Map.insert x Top (Map.insert y Top fact)
+    fromExpr x (VarE (ident -> y)) fact
+      | Just (PElem lit) <- Map.lookup y fact =
+        Map.insert x (PElem lit) fact
     fromExpr x _ fact =
       Map.insert x Top fact
 
 constProp :: forall m a . FuelMonad m => FwdRewrite m (Stmt a) ConstFact
-constProp = mkFRewrite rewrite
+constProp = mkFRewrite go
   where
-    rewrite :: Stmt a e x -> ConstFact -> m (Maybe (Graph (Stmt a) e x))
-    rewrite _ _ =
+    go :: Stmt a e x -> ConstFact -> m (Maybe (Graph (Stmt a) e x))
+    go (Expr a x (VarE (ident -> y)) (JustC labels)) fact
+      | Just lit <- getLit y fact =
+        return $ Just $ mkLast $ Expr a x (LitE lit) (JustC labels)
+    go (Expr a x (VarE (ident -> y)) NothingC) fact
+      | Just lit <- getLit y fact =
+        return $ Just $ mkMiddle $ Expr a x (LitE lit) NothingC
+    go _ _ =
       return Nothing
+    
+    getLit :: Ident -> ConstFact -> Maybe Lit
+    getLit x fact
+      | Just (PElem lit) <- Map.lookup x fact = Just lit
+      | otherwise = Nothing

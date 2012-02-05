@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, ScopedTypeVariables #-}
+{-# LANGUAGE GADTs, PatternGuards, ScopedTypeVariables #-}
 module Language.Glyph.Hoopl.Simplify
        ( simplify
        ) where
@@ -13,12 +13,17 @@ simplify :: forall m a . FuelMonad m => FwdRewrite m (Stmt a) ConstFact
 simplify = deepFwdRw go
   where
     go :: Stmt a e x -> ConstFact -> m (Maybe (Graph (Stmt a) e x))
-    go (Stmt _ (IfS x true false)) fact =
-      return $
-      case Map.lookup x fact of
-        Just (PElem (BoolL bool)) ->
-          Just $ mkLast $ Goto $ if bool then true else false
-        _ ->
-          Nothing
+    go (Stmt _ (IfS x true false)) fact
+      | Just (PElem (BoolL bool)) <- Map.lookup x fact =
+        return $ Just $ mkLast $ Goto $ if bool then true else false
+    go (Expr a x (NotE y) labels) fact
+      | Just (PElem (BoolL bool)) <- Map.lookup y fact =
+        return $ Just $ mkStmt (Expr a x (LitE . BoolL . not $ bool)) labels
     go _ _ =
       return Nothing
+
+mkStmt :: (MaybeC x (Label, Label) -> Stmt a O x) ->
+          MaybeC x (Label, Label) ->
+          Graph (Stmt a) O x
+mkStmt f (JustC labels) = mkLast $ f (JustC labels)
+mkStmt f NothingC = mkMiddle $ f NothingC

@@ -211,7 +211,7 @@ fromStmt = fromStmt'
                                  }) $ fromStmt stmt1
       nextLabel <- freshLabel
       let gotoNext = mkBranch nextLabel
-      catch <- fromFinallyStmt catchLabel stmt2
+      catch <- fromCatchStmt catchLabel stmt2
       let next = mkLabel nextLabel
       return $ try |<*>| gotoNext |*><*| catch |*><*| next
     go (Glyph.BlockS stmts') =
@@ -224,17 +224,15 @@ fromStmt = fromStmt'
       next <- mkLabel <$> freshLabel
       return $ expr |<*>| finally |<*>| return' |*><*| next
     
-    fromFinallyStmt finallyLabel finallyStmt = do
+    fromCatchStmt catchLabel catchStmt = do
       x <- freshIdent
-      let catch = mkFirst $ Catch x finallyLabel
-      finally <- fromStmt finallyStmt
+      let catch = mkFirst $ Catch x catchLabel
+      finally <- fromStmt catchStmt
       throw <- mkLast <$> (fromStmtView =<< ThrowS x <$> asks maybeCatchLabel)
       return $ catch |<*>| finally |<*>| throw
 
 fromStmtView :: MonadReader (R a) m => StmtView a x -> m (Stmt a O x)
-fromStmtView v = do
-  a <- askA
-  return $ Stmt a v
+fromStmtView v = Stmt <$> askA <*> pure v
 
 fromExpr :: ( Monoid a
             , MonadError HooplException m

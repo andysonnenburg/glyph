@@ -39,7 +39,7 @@ data ExpView a
   | LetE Pat (Exp a) (Exp a)
 
   | LitE Lit
-    
+
   | TupleE [Exp a]
 
   | Undefined

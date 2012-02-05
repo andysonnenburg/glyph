@@ -24,7 +24,7 @@ newtype Ident
           } deriving (Eq, Ord, Typeable)
 
 instance Show Ident where
-  show = ('$':) . show . unIdent
+  show = ('$' :) . show . unIdent
 
 instance Data Ident where
   gfoldl _f z = z

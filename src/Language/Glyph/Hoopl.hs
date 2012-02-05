@@ -92,28 +92,33 @@ instance CheckpointMonad Identity where
   restart = return
 
 toGraph :: ( Monoid a
-           , Monad m
            , MonadError HooplException m
            , UniqueMonad m
            ) => [Glyph.Stmt a] -> m (Graph (Stmt a) O C)
-toGraph stmts = do
+toGraph = fromFun []
+
+fromFun :: ( Monoid a
+           , MonadError HooplException m
+           , UniqueMonad m
+           ) => [Ident] -> [Glyph.Stmt a] -> m (Graph (Stmt a) O C)
+fromFun params stmts = do
   graph <- catGraphs <$> runReaderT (mapM fromStmt stmts) r
   let graph' = graph |<*>| mkLast ReturnVoid
   return $ removeUnreachable . runWithFuel' $
-    fst3 <$> analyzeAndRewriteFwdOx fwd graph' mempty
+    fst3 <$> analyzeAndRewriteFwdOx fwd graph' (initFact params)
   where
     r = R { annotation = mconcat $ map extract stmts
           , finallyM = (emptyGraphM, emptyGraphM)
           , maybeCatchLabel = Nothing
           , maybeLoopLabels = Nothing
           }
-    
+
     runWithFuel' :: InfiniteFuelMonad Identity a -> a
     runWithFuel' = runIdentity . runWithFuel infiniteFuel
-    
+
     fst3 :: (a, b, c) -> a
     fst3 (x, _, _) = x
-    
+
     fwd = FwdPass { fp_lattice = constLattice
                   , fp_transfer = identIsLit
                   , fp_rewrite = simplify
@@ -127,7 +132,7 @@ fromStmt :: ( Monoid a
 fromStmt = fromStmt'
   where
     fromStmt' (Glyph.Stmt a x) = localA a $ go x
-    
+
     go (Glyph.ExprS expr) = do
       (x, W expr') <- runWriterT $ fromExpr expr
       stmt <- mkMiddle <$> fromStmtView (ExprS x)
@@ -138,8 +143,9 @@ fromStmt = fromStmt'
       (x, W expr') <- runWriterT $ fromExpr expr
       varDecl <- mkMiddle <$> fromStmtView (VarDeclS name $ Just x)
       return $ expr' |<*>| varDecl
-    go (Glyph.FunDeclS name params stmts) =
-      mkMiddle <$> (fromStmtView =<< FunDeclS name params <$> toGraph stmts)
+    go (Glyph.FunDeclS name params stmts) = do
+      graph <- fromFun (map ident params) stmts
+      mkMiddle <$> fromStmtView (FunDeclS name params graph)
     go (Glyph.ReturnS Nothing) =
       fromReturnStmt $ fromExprView $ LitE VoidL
     go (Glyph.ReturnS (Just expr)) =
@@ -194,7 +200,7 @@ fromStmt = fromStmt'
       return $ expr' |<*>| throw |*><*| next
     go (Glyph.TryFinallyS stmt Nothing) =
       fromStmt stmt
-    go (Glyph.TryFinallyS  stmt1 (Just stmt2)) = do
+    go (Glyph.TryFinallyS stmt1 (Just stmt2)) = do
       r <- ask
       let updateR = const r
       catchLabel <- freshLabel
@@ -216,14 +222,14 @@ fromStmt = fromStmt'
       return $ try |<*>| gotoNext |*><*| catch |*><*| next
     go (Glyph.BlockS stmts') =
       catGraphs <$> mapM fromStmt stmts'
-    
+
     fromReturnStmt exprM = do
       (x, W expr) <- runWriterT exprM
       finally <- join $ asks $ snd . finallyM
       return' <- mkLast <$> fromStmtView (ReturnS x)
       next <- mkLabel <$> freshLabel
       return $ expr |<*>| finally |<*>| return' |*><*| next
-    
+
     fromCatchStmt catchLabel catchStmt = do
       x <- freshIdent
       let catch = mkFirst $ Catch x catchLabel
@@ -249,7 +255,7 @@ fromExpr (Glyph.Expr a v) =
     Glyph.VarE name ->
       fromExprView $ VarE name
     Glyph.FunE x params stmts ->
-      fromExprView . FunE x params =<< toGraph stmts
+      fromExprView . FunE x params =<< fromFun (map ident params) stmts
     Glyph.ApplyE expr exprs -> do
       x <- fromExpr expr
       xs <- mapM fromExpr exprs

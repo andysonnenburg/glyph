@@ -11,4 +11,3 @@ import qualified Unsafe.Coerce as Unsafe (unsafeCoerce)
 
 intToUnique :: Int -> Unique
 intToUnique = Unsafe.unsafeCoerce
-

@@ -12,13 +12,13 @@ removeUnreachable graph
   where
     blocks :: [Block n C C]
     blocks = postorder_dfs graph
-    
+
     entry :: Graph n O C -> Block n O C
     entry (GMany (JustO x) _ _) = x
-    
+
     toLabelMap :: Graph n O C -> LabelMap (Block n C C)
     toLabelMap (GMany _ x _) = x
-    
+
     toGraph :: Block n O C -> [Block n C C] -> Graph n O C
     toGraph x xs = GMany entry' body exit
       where

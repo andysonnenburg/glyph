@@ -5,4 +5,3 @@ module Language.Glyph.View
 
 class View a b | a -> b, b -> a where
   view :: a -> b
-

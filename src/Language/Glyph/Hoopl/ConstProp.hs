@@ -4,6 +4,7 @@ module Language.Glyph.Hoopl.ConstProp
        , constLattice
        , identIsLit
        , constProp
+       , initFact
        ) where
 
 import Compiler.Hoopl hiding (joinMaps)
@@ -84,7 +85,7 @@ identIsLit = mkFTransfer go
       Map.insert x Top fact
     go ReturnVoid _ =
       mapEmpty
-    
+
     fromExpr :: ExprIdent -> ExprView a -> ConstFact -> ConstFact
     fromExpr x (LitE lit) fact =
       Map.insert x (PElem lit) fact
@@ -103,16 +104,22 @@ constProp :: forall m a . FuelMonad m => FwdRewrite m (Stmt a) ConstFact
 constProp = mkFRewrite go
   where
     go :: Stmt a e x -> ConstFact -> m (Maybe (Graph (Stmt a) e x))
-    go (Expr a x (VarE (ident -> y)) (JustC labels)) fact
+    go (Expr a x (VarE (ident -> y)) labels) fact
       | Just lit <- getLit y fact =
-        return $ Just $ mkLast $ Expr a x (LitE lit) (JustC labels)
-    go (Expr a x (VarE (ident -> y)) NothingC) fact
-      | Just lit <- getLit y fact =
-        return $ Just $ mkMiddle $ Expr a x (LitE lit) NothingC
+        return $ Just $ mkStmt (Expr a x (LitE lit)) labels
     go _ _ =
       return Nothing
-    
+
     getLit :: Ident -> ConstFact -> Maybe Lit
     getLit x fact
       | Just (PElem lit) <- Map.lookup x fact = Just lit
       | otherwise = Nothing
+
+    mkStmt :: (MaybeC x (Label, Label) -> Stmt a O x) ->
+              MaybeC x (Label, Label) ->
+              Graph (Stmt a) O x
+    mkStmt f (JustC labels) = mkLast $ f (JustC labels)
+    mkStmt f NothingC = mkMiddle $ f NothingC
+
+initFact :: [Ident] -> ConstFact
+initFact params = Map.fromList [(param, Top) | param <- params]

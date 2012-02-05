@@ -67,15 +67,15 @@ prettyGraph = go
       open (flip block []) entry ++
       body blocks ++
       open (flip block []) exit
-    
+
     open :: (a -> [Doc e]) -> MaybeO z a -> [Doc e]
     open _ NothingO = []
     open p (JustO x) = p x
-    
+
     body :: LabelMap (Block (Stmt a) C C) -> [Doc e]
     body blocks =
       concatMap (flip block []) . mapElems $ blocks
-    
+
     block :: forall a e x e' .
              Block (Stmt a) e x ->
              IndexedCO x [Doc e'] [Doc e'] ->
@@ -106,11 +106,11 @@ instance Pretty (Stmt a e x) where
         prettyCatch (prettyIdent x) label
       go ReturnVoid =
         text "return" <+> pretty VoidL <> semi
-      
+
       prettyCatch :: Doc e' -> Label -> Doc e'
       prettyCatch nameDoc label =
         prettyLabel label <> colon <+> text "catch" <+> parens nameDoc
-      
+
       prettyExpr :: ExprIdent -> ExprView a -> Doc e'
       prettyExpr x expr =
         text "let" <+> prettyIdent x <+> char '=' <+> pretty expr
@@ -130,7 +130,7 @@ instance Pretty (StmtView a x) where
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>
         rbrace
       go (ReturnS expr) =
-        text "return" <+> prettyIdent expr <> semi 
+        text "return" <+> prettyIdent expr <> semi
       go (IfS expr then' else') =
         text "if" <+> parens (prettyIdent expr) <+>
         prettyLabel then' <+>
@@ -138,15 +138,15 @@ instance Pretty (StmtView a x) where
         semi
       go (ThrowS expr _maybeCatchLabel) =
         text "throw" <+> prettyIdent expr <> semi
-      
+
       varDef :: Name -> ExprIdent -> Doc e
       varDef name x =
-        var name <+> char '=' <+> prettyIdent x  <> semi
-      
+        var name <+> char '=' <+> prettyIdent x <> semi
+
       varDecl :: Name -> Doc e
       varDecl name =
         var name <> semi
-      
+
       var :: Name -> Doc e
       var name =
         text "var" <+> pretty name
@@ -195,8 +195,8 @@ instance NonLocal (Stmt a) where
     where
       go (Label label) = label
       go (Catch _maybeName label) = label
-  
-  
+
+
   successors = stmtSuccessors
     where
       stmtSuccessors = go
@@ -205,7 +205,7 @@ instance NonLocal (Stmt a) where
           go (Expr _ _ _ (JustC (next, catch'))) = [next, catch']
           go (Goto label) = [label]
           go ReturnVoid = []
-      
+
       stmtViewSuccessors = go
         where
           go :: StmtView a C -> [Label]

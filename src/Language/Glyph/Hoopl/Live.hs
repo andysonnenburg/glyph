@@ -1,8 +1,10 @@
 {-# LANGUAGE GADTs, ScopedTypeVariables, ViewPatterns #-}
 module Language.Glyph.Hoopl.Live
-       ( liveLattice
+       ( LiveFact
+       , liveLattice
        , liveness
-       , deadAssignElim
+       , deadCodeElim
+       , initLiveFact
        ) where
 
 import Compiler.Hoopl
@@ -12,12 +14,15 @@ import Language.Glyph.IdentSet (IdentSet)
 import qualified Language.Glyph.IdentSet as Set
 import Language.Glyph.Monoid
 
-type Live = IdentSet
+type LiveFact = IdentSet
 
-liveLattice :: DataflowLattice Live
+botLiveFact :: LiveFact
+botLiveFact = Set.empty
+
+liveLattice :: DataflowLattice LiveFact
 liveLattice =
   DataflowLattice { fact_name = "live variables"
-                  , fact_bot = Set.empty
+                  , fact_bot = botLiveFact
                   , fact_join = join
                   }
   where
@@ -26,14 +31,17 @@ liveLattice =
         fact = new <> old
         change = changeIf $ Set.size fact > Set.size old
 
-liveness :: BwdTransfer (Stmt a) Live
-liveness = mkBTransfer transfer
+liveness :: BwdTransfer (Stmt a) LiveFact
+liveness = mkBTransfer go
   where
-    transfer :: Stmt a e x -> Fact x Live -> Live
-    transfer = undefined
+    go :: Stmt a e x -> Fact x LiveFact -> LiveFact
+    go _ _ = undefined
 
-deadAssignElim :: forall m a . FuelMonad m => BwdRewrite m (Stmt a) Live
-deadAssignElim = mkBRewrite rewrite
+deadCodeElim :: forall m a . FuelMonad m => BwdRewrite m (Stmt a) LiveFact
+deadCodeElim = mkBRewrite go
   where
-    rewrite :: Stmt a e x -> Fact x Live -> m (Maybe (Graph (Stmt a) e x))
-    rewrite = undefined
+    go :: Stmt a e x -> Fact x LiveFact -> m (Maybe (Graph (Stmt a) e x))
+    go _ _ = return Nothing
+
+initLiveFact :: LiveFact
+initLiveFact = Set.empty

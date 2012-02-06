@@ -27,6 +27,7 @@ import Data.Function
 import Data.Typeable
 
 import Language.Glyph.Hoopl.ConstProp
+import Language.Glyph.Hoopl.Live
 import Language.Glyph.Hoopl.RemoveUnreachable
 import Language.Glyph.Hoopl.Simplify
 import Language.Glyph.Hoopl.Syntax as X
@@ -105,7 +106,8 @@ fromFun params stmts = do
   graph <- catGraphs <$> runReaderT (mapM fromStmt stmts) r
   let graph' = graph |<*>| mkLast ReturnVoid
   return $ removeUnreachable . runWithFuel' $
-    fst3 <$> analyzeAndRewriteFwdOx fwd graph' (initFact params)
+    analyzeAndRewriteFwdOx' graph' >>=
+    analyzeAndRewriteBwdOx'
   where
     r = R { annotation = mconcat $ map extract stmts
           , finallyM = (emptyGraphM, emptyGraphM)
@@ -116,12 +118,25 @@ fromFun params stmts = do
     runWithFuel' :: InfiniteFuelMonad Identity a -> a
     runWithFuel' = runIdentity . runWithFuel infiniteFuel
 
+    analyzeAndRewriteFwdOx' graph =
+      fst3 <$> analyzeAndRewriteFwdOx fwd graph initConstFact'
+
+    analyzeAndRewriteBwdOx' graph =
+      fst3 <$> analyzeAndRewriteBwdOx bwd graph mapEmpty
+
+    initConstFact' = initConstFact params
+
     fst3 :: (a, b, c) -> a
     fst3 (x, _, _) = x
 
     fwd = FwdPass { fp_lattice = constLattice
                   , fp_transfer = identIsLit
                   , fp_rewrite = simplify
+                  }
+
+    bwd = BwdPass { bp_lattice = liveLattice
+                  , bp_transfer = liveness
+                  , bp_rewrite = deadCodeElim
                   }
 
 fromStmt :: ( Monoid a

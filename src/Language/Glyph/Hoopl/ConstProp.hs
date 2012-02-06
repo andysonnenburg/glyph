@@ -4,7 +4,7 @@ module Language.Glyph.Hoopl.ConstProp
        , constLattice
        , identIsLit
        , constProp
-       , initFact
+       , initConstFact
        ) where
 
 import Compiler.Hoopl hiding (joinMaps)
@@ -20,10 +20,13 @@ import Prelude hiding (elem, last)
 
 type ConstFact = IdentMap (WithTop Lit)
 
+botConstFact :: ConstFact
+botConstFact = Map.empty
+
 constLattice :: DataflowLattice ConstFact
 constLattice =
   DataflowLattice { fact_name = "const var value"
-                  , fact_bot = Map.empty
+                  , fact_bot = botConstFact
                   , fact_join = join
                   }
   where
@@ -121,5 +124,5 @@ constProp = mkFRewrite go
     mkStmt f (JustC labels) = mkLast $ f (JustC labels)
     mkStmt f NothingC = mkMiddle $ f NothingC
 
-initFact :: [Ident] -> ConstFact
-initFact params = Map.fromList [(param, Top) | param <- params]
+initConstFact :: [Ident] -> ConstFact
+initConstFact params = Map.fromList [(param, Top) | param <- params]

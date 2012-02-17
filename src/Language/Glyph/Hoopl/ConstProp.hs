@@ -53,18 +53,20 @@ identIsLit :: FwdTransfer (Stmt a) ConstFact
 identIsLit = mkFTransfer go
   where
     go :: Stmt a e x -> ConstFact -> Fact x ConstFact
-    go (Stmt _ (ExprS _)) fact =
+    go (Stmt _ (ExprS _ _)) fact =
       fact
-    go (Stmt _ (VarDeclS (ident -> x) (Just y))) fact
+    go (Stmt _ (VarDeclS (ident -> x) (Just y) _)) fact
       | Just (PElem lit) <- Map.lookup y fact =
         Map.insert x (PElem lit) fact
     go (Stmt _ (VarDeclS {})) fact =
       fact
     go (Stmt _ (FunDeclS {})) fact =
       fact
+    go (Stmt _ (GotoS label _)) fact =
+      mapSingleton label fact
     go (Stmt _ (ReturnS {})) _ =
       mapEmpty
-    go (Stmt _ (IfS x true false)) fact =
+    go (Stmt _ (IfS x true false _)) fact =
       mkFactBase constLattice
       [ (true, Map.insert x (PElem (BoolL True)) fact)
       , (false, Map.insert x (PElem (BoolL False)) fact)
@@ -82,8 +84,6 @@ identIsLit = mkFTransfer go
       ]
     go (Label _) fact =
       fact
-    go (Goto label) fact =
-      mapSingleton label fact
     go (Catch x _) fact =
       Map.insert x Top fact
     go ReturnVoid _ =

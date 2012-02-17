@@ -20,6 +20,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import Data.Maybe
+import Data.Monoid
 import qualified Data.Text as Text
 
 import Language.Glyph.Annotation.ExtraSet
@@ -35,7 +36,6 @@ import Language.Glyph.Location hiding (logError)
 import qualified Language.Glyph.Location as Location
 import Language.Glyph.Logger
 import Language.Glyph.Message
-import Language.Glyph.Monoid
 import Language.Glyph.Syntax
 
 import Prelude hiding (break)

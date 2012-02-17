@@ -7,10 +7,11 @@ module Language.Glyph.AddCallSet
        ( addCallSet
        ) where
 
+import Data.Monoid
+
 import Language.Glyph.Annotation.CallSet hiding (callSet)
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Generics
-import Language.Glyph.Monoid
 import Language.Glyph.IdentMap (IdentMap, (!), intersectionWith')
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.IdentSet (IdentSet, (\\))

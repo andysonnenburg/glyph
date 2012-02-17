@@ -1,6 +1,7 @@
 {-# LANGUAGE
     DeriveDataTypeable
   , FlexibleContexts
+  , FlexibleInstances
   , GeneralizedNewtypeDeriving
   , TypeSynonymInstances
   , ViewPatterns #-}
@@ -15,6 +16,7 @@ import Control.Monad.Error
 import Control.Monad.Reader
 
 import Data.Maybe
+import Data.Monoid
 import Data.Typeable
 
 import Language.Glyph.HM.Syntax
@@ -26,7 +28,6 @@ import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Location
 import Language.Glyph.Logger
 import Language.Glyph.Message
-import Language.Glyph.Monoid
 import Language.Glyph.Type
 import qualified Language.Glyph.Type as Type
 import Language.Glyph.Unique

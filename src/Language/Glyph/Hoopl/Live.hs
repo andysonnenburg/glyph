@@ -9,10 +9,11 @@ module Language.Glyph.Hoopl.Live
 
 import Compiler.Hoopl
 
+import Data.Monoid
+
 import Language.Glyph.Hoopl.Syntax
 import Language.Glyph.IdentSet (IdentSet)
 import qualified Language.Glyph.IdentSet as Set
-import Language.Glyph.Monoid
 
 type LiveFact = IdentSet
 

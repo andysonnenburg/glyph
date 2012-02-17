@@ -7,11 +7,12 @@ module Language.Glyph.AddSort
 import Control.Applicative
 import Control.Exception
 
+import Data.Monoid
+
 import Language.Glyph.Annotation.Location
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Generics
 import Language.Glyph.Logger
-import Language.Glyph.Monoid
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.Syntax

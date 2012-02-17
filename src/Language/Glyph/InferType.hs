@@ -32,7 +32,6 @@ import Language.Glyph.IdentMap (IdentMap, (!))
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Logger
 import Language.Glyph.Message
-import Language.Glyph.Monoid
 import Language.Glyph.Symtab
 import Language.Glyph.Syntax
 import Language.Glyph.Unique

@@ -3,6 +3,7 @@ module Language.Glyph.AddExtraSet
        ) where
 
 import Data.Graph hiding (scc, vertices)
+import Data.Monoid
 
 import Language.Glyph.Annotation.CallSet hiding (callSet)
 import qualified Language.Glyph.Annotation.CallSet as Annotation
@@ -10,7 +11,6 @@ import Language.Glyph.Annotation.ExtraSet hiding (extraSet)
 import Language.Glyph.Annotation.FreeVars hiding (freeVars)
 import qualified Language.Glyph.Annotation.FreeVars as Annotation
 import Language.Glyph.Annotation.Sort
-import Language.Glyph.Monoid
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!), intersectionWith')
 import qualified Language.Glyph.IdentMap as IdentMap

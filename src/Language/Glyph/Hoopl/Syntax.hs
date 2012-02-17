@@ -1,10 +1,12 @@
 {-# LANGUAGE GADTs, ScopedTypeVariables #-}
 module Language.Glyph.Hoopl.Syntax
        ( module X
+       , Insn (..)
        , Stmt (..)
-       , StmtView (..)
-       , ExprView (..)
+       , Expr (..)
        , ExprIdent
+       , Successor
+       , Successors
        , prettyGraph
        ) where
 
@@ -22,42 +24,43 @@ import Language.Glyph.Syntax as X (Lit (..),
 
 import Text.PrettyPrint.Free hiding (encloseSep, tupled)
 
-data Stmt a e x where
-  Stmt :: a -> StmtView a x -> Stmt a O x
-  Expr :: a -> ExprIdent -> ExprView a -> MaybeC x (Label, Label) -> Stmt a O x
-  Label :: Label -> Stmt a C O
-  Goto :: Label -> Stmt a O C
-  Catch :: ExprIdent -> Label -> Stmt a C O
-  ReturnVoid :: Stmt a O C
+data Insn a e x where
+  Stmt :: a -> Stmt a x -> Insn a O x
+  Expr :: a -> ExprIdent -> Expr a -> Successors x -> Insn a O x
+  Label :: Label -> Insn a C O
+  Catch :: ExprIdent -> Label -> Insn a C O
+  ReturnVoid :: Insn a O C
 
-instance Show (Stmt a e x) where
+instance Show (Insn a e x) where
   show = show . pretty
 
-data StmtView a x where
-  ExprS :: ExprIdent -> StmtView a O
-  VarDeclS :: Name -> Maybe ExprIdent -> StmtView a O
-  FunDeclS :: Name -> [Name] -> Graph (Stmt a) O C -> StmtView a O
-  ReturnS :: ExprIdent -> StmtView a C
-  IfS :: ExprIdent -> Label -> Label -> StmtView a C
-  ThrowS :: ExprIdent -> Maybe Label -> StmtView a C
+data Stmt a x where
+  ExprS :: ExprIdent -> Successors x -> Stmt a x
+  VarDeclS :: Name -> Maybe ExprIdent -> Successors x -> Stmt a x
+  FunDeclS :: Name -> [Name] -> Graph (Insn a) O C -> Stmt a O
+  ReturnS :: ExprIdent -> Successor -> Stmt a C
+  GotoS :: Label -> Successor -> Stmt a C
+  IfS :: ExprIdent -> Label -> Label -> Successor -> Stmt a C
+  ThrowS :: ExprIdent -> Successor -> Stmt a C
 
-data ExprView a where
-  LitE :: Lit -> ExprView a
-  NotE :: ExprIdent -> ExprView a
-  VarE :: Name -> ExprView a
-  FunE :: Ident -> [Name] -> Graph (Stmt a) O C -> ExprView a
-  ApplyE :: ExprIdent -> [ExprIdent] -> ExprView a
-  AssignE :: Name -> ExprIdent -> ExprView a
+data Expr a where
+  LitE :: Lit -> Expr a
+  NotE :: ExprIdent -> Expr a
+  VarE :: Name -> Expr a
+  FunE :: Ident -> [Name] -> Graph (Insn a) O C -> Expr a
+  ApplyE :: ExprIdent -> [ExprIdent] -> Expr a
+  AssignE :: Name -> ExprIdent -> Expr a
 
 type ExprIdent = Ident
 
-instance Show (StmtView a x) where
-  show = show . pretty
+type Successor = Maybe Label
 
-prettyGraph :: Graph (Stmt a) e x -> Doc e'
+type Successors x = MaybeC x (Label, Label)
+
+prettyGraph :: Graph (Insn a) e x -> Doc e'
 prettyGraph = go
   where
-    go :: Graph (Stmt a) e x -> Doc e'
+    go :: Graph (Insn a) e x -> Doc e'
     go GNil =
       empty
     go (GUnit unit) =
@@ -72,72 +75,68 @@ prettyGraph = go
     open _ NothingO = []
     open p (JustO x) = p x
 
-    body :: LabelMap (Block (Stmt a) C C) -> [Doc e]
+    body :: LabelMap (Block (Insn a) C C) -> [Doc e]
     body blocks =
       concatMap (flip block []) . mapElems $ blocks
 
     block :: forall a e x e' .
-             Block (Stmt a) e x ->
+             Block (Insn a) e x ->
              IndexedCO x [Doc e'] [Doc e'] ->
              IndexedCO e [Doc e'] [Doc e']
     block = foldBlockNodesB f
       where
-        f :: forall entry exit . Stmt a entry exit -> [Doc e'] -> [Doc e']
+        f :: forall e x . Insn a e x -> [Doc e'] -> [Doc e']
         f stmt docs = pretty stmt : docs
 
-instance Pretty (Stmt a e x) where
+instance Pretty (Insn a e x) where
   pretty = go
     where
-      go :: Stmt a e x -> Doc e'
+      go :: Insn a e x -> Doc e'
       go (Stmt _ x) =
         pretty x
-      go (Expr _ x expr (JustC (nextLabel, catchLabel))) =
-        prettyExpr x expr <+>
-        text "to" <+> prettyLabel nextLabel <+>
-        text "unwind" <+> prettyLabel catchLabel <>
-        semi
-      go (Expr _ x expr NothingC) =
-        prettyExpr x expr <> semi
+      go (Expr _ x expr successors') =
+        text "let" <+> prettyIdent x <+> char '=' <+> pretty expr
+        `prettySuccessors`
+        successors'
       go (Label label) =
         prettyLabel label <> colon
-      go (Goto label) =
-        prettyGoto label
       go (Catch x label) =
-        prettyCatch (prettyIdent x) label
+        prettyLabel label <> colon <+>
+        text "catch" <+>
+        parens (prettyIdent x) <> semi
       go ReturnVoid =
         text "return" <+> pretty VoidL <> semi
 
-      prettyCatch :: Doc e' -> Label -> Doc e'
-      prettyCatch nameDoc label =
-        prettyLabel label <> colon <+> text "catch" <+> parens nameDoc
-
-      prettyExpr :: ExprIdent -> ExprView a -> Doc e'
-      prettyExpr x expr =
-        text "let" <+> prettyIdent x <+> char '=' <+> pretty expr
-
-instance Pretty (StmtView a x) where
+instance Pretty (Stmt a x) where
   pretty = go
     where
-      go :: StmtView a x -> Doc e
-      go (ExprS expr) =
+      go :: Stmt a x -> Doc e
+      go (ExprS expr _) =
         prettyIdent expr <> semi
-      go (VarDeclS name Nothing) =
+      go (VarDeclS name Nothing _) =
         varDecl name
-      go (VarDeclS name (Just x)) =
+      go (VarDeclS name (Just x) _) =
         varDef name x
       go (FunDeclS name params graph) =
         text "fn" <+> pretty name <> tupled (map pretty params) <+> lbrace <>
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>
         rbrace
-      go (ReturnS expr) =
-        text "return" <+> prettyIdent expr <> semi
-      go (IfS expr then' else') =
+      go (ReturnS expr successor) =
+        text "return" <+> prettyIdent expr
+        `prettySuccessor`
+        successor
+      go (GotoS label _) =
+        prettyGoto label
+      go (IfS expr then' else' successor) =
         text "if" <+> parens (prettyIdent expr) <+>
         prettyLabel then' <+>
-        prettyLabel else' <>
-        semi
-      go (ThrowS expr _maybeCatchLabel) =
-        text "throw" <+> prettyIdent expr <> semi
+        prettyLabel else'
+        `prettySuccessor`
+        successor
+      go (ThrowS expr successor) =
+        text "throw" <+> prettyIdent expr
+        `prettySuccessor`
+        successor
 
       varDef :: Name -> ExprIdent -> Doc e
       varDef name x =
@@ -155,7 +154,7 @@ prettyGoto :: Label -> Doc e
 prettyGoto label =
   text "goto" <+> prettyLabel label <> semi
 
-instance Pretty (ExprView a) where
+instance Pretty (Expr a) where
   pretty = go
     where
       go (LitE lit) =
@@ -172,6 +171,24 @@ instance Pretty (ExprView a) where
         prettyIdent expr <> tupled (map prettyIdent exprs)
       go (AssignE name x) =
         pretty name <+> char '=' <+> prettyIdent x
+
+prettySuccessors :: Doc e -> Successors x -> Doc e
+prettySuccessors = go
+  where
+    go doc (JustC (nextLabel, catchLabel)) =
+      doc <+> text "unwind" <+> prettyLabel catchLabel <> semi
+      `above`
+      prettyGoto nextLabel <> semi
+    go doc NothingC =
+      doc <> semi
+
+prettySuccessor :: Doc e -> Successor -> Doc e
+prettySuccessor = go
+  where
+    go doc (Just catchLabel) =
+      doc <+> text "unwind" <+> prettyLabel catchLabel <> semi
+    go doc Nothing =
+      doc <> semi
 
 prettyIdent :: Ident -> Doc e
 prettyIdent =
@@ -190,32 +207,40 @@ encloseSep left right sp ds0 =
     [d] -> left <> d <> right
     ds -> left <> align (cat (zipWith (<>) (init ds) (repeat sp) ++ [last ds <> right]))
 
-instance NonLocal (Stmt a) where
+instance NonLocal (Insn a) where
   entryLabel = go
     where
+      go :: Insn a C x -> Label
       go (Label label) = label
-      go (Catch _maybeName label) = label
-
-
+      go (Catch _ label) = label
+  
   successors = stmtSuccessors
     where
       stmtSuccessors = go
         where
-          go (Stmt _ x) = stmtViewSuccessors x
-          go (Expr _ _ _ (JustC (next, catch'))) = [next, catch']
-          go (Goto label) = [label]
-          go ReturnVoid = []
+          go (Stmt _ x) =
+            stmtViewSuccessors x
+          go (Expr _ _ _ successors') =
+            successorsToList successors'
+          go ReturnVoid =
+            []
 
       stmtViewSuccessors = go
         where
-          go :: StmtView a C -> [Label]
-          go (ReturnS _) =
-            []
-          go (IfS _ thenLabel elseLabel) =
-            [thenLabel, elseLabel]
+          go :: Stmt a C -> [Label]
+          go (ExprS _ successors') =
+            successorsToList successors'
+          go (VarDeclS _ _ successors') =
+            successorsToList successors'
+          go (GotoS label successor) =
+            label : maybeToList successor
+          go (ReturnS _ successor) =
+            maybeToList successor
+          go (IfS _ thenLabel elseLabel successor) =
+            [thenLabel, elseLabel] ++ maybeToList successor
           go (ThrowS _ maybeCatchLabel') =
             maybeToList maybeCatchLabel'
 
-instance HooplNode (Stmt a) where
-  mkBranchNode = Goto
-  mkLabelNode = Label
+successorsToList :: Successors C -> [Label]
+successorsToList (JustC (nextLabel, catchLabel)) =
+  [nextLabel, catchLabel]

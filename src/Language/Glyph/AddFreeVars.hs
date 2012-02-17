@@ -7,10 +7,11 @@ module Language.Glyph.AddFreeVars
        ( addFreeVars
        ) where
 
+import Data.Monoid
+
 import Language.Glyph.Annotation.FreeVars hiding (freeVars)
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Generics
-import Language.Glyph.Monoid
 import Language.Glyph.IdentMap (IdentMap, (!), intersectionWith')
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.IdentSet (IdentSet, (\\))

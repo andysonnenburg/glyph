@@ -26,5 +26,5 @@ executable glyph
     text,
     hoopl,
     wl-pprint-extras
-  build-tools: alex, happy
+  build-tools: alex >= 3, happy
   ghc-options: -Wall

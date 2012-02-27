@@ -1,5 +1,5 @@
 {-# LANGUAGE GADTs, ScopedTypeVariables #-}
-module Language.Glyph.Hoopl.RemoveUnreachable
+module Language.Glyph.IR.RemoveUnreachable
        ( removeUnreachable
        ) where
 

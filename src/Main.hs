@@ -5,6 +5,7 @@ import Control.Monad.Error hiding (ErrorT (..))
 
 import qualified Data.ByteString.Lazy as ByteString
 import Data.Generics
+import Data.Monoid
 
 import Language.Glyph.AddCallSet
 import Language.Glyph.AddExtraSet
@@ -17,12 +18,11 @@ import Language.Glyph.CheckFun
 import Language.Glyph.CheckReturn
 import Language.Glyph.CheckVar
 import Language.Glyph.Error
-import Language.Glyph.Hoopl (toGraph, showGraph')
+import Language.Glyph.IR (toGraph, showGraph')
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.InferType
 import Language.Glyph.Logger
-import Language.Glyph.Monoid
 import Language.Glyph.Parse
 import Language.Glyph.Rename
 import Language.Glyph.Syntax

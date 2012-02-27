@@ -8,9 +8,9 @@
   , NamedFieldPuns
   , RankNTypes
   , TypeSynonymInstances #-}
-module Language.Glyph.IR.ToGraph
+module Language.Glyph.IR.FromStmts
        ( ContFlowException (..)
-       , toGraph
+       , fromStmts
        ) where
 
 import Control.Comonad
@@ -30,11 +30,11 @@ import qualified Language.Glyph.Syntax.Internal as Glyph
 
 import Prelude hiding (last)
 
-toGraph :: ( Monoid a
+fromStmts :: ( Monoid a
            , MonadError ContFlowException m
            , UniqueMonad m
            ) => [Glyph.Stmt a] -> m (Graph (Insn a) O C)
-toGraph = fromFun []
+fromStmts = fromFun []
 
 fromFun :: ( Monoid a
            , MonadError ContFlowException m
@@ -152,18 +152,17 @@ tellStmt = tellStmt'
     go (Glyph.TryFinallyS stmt1 (Just stmt2)) = do
       r <- ask
       (nextLabel, catchLabel) <- freshLabels
+      let maybeCatchLabel = Just catchLabel
       last <- local (\ r'@R { finally } ->
                       r' { finally =
-                              Finally { beforeLoopExit = do
-                                           local (const r) $ tellStmt stmt2
-                                           beforeLoopExit finally
-                                      , beforeReturn = do
-                                           local (const r) $ tellStmt stmt2
-                                           beforeReturn finally
-                                      }
-                            , maybeCatchLabel =
-                                 Just catchLabel
-                            }) $ do
+                              let m = local (const r) $ tellStmt stmt2
+                              in Finally { beforeLoopExit =
+                                              m >> beforeLoopExit finally
+                                         , beforeReturn =
+                                              m >> beforeReturn finally
+                                         }
+                         , maybeCatchLabel
+                         }) $ do
         tellStmt stmt1
         getLastS $ GotoS nextLabel
       x <- freshIdent

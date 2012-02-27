@@ -18,10 +18,10 @@ import Language.Glyph.CheckFun
 import Language.Glyph.CheckReturn
 import Language.Glyph.CheckVar
 import Language.Glyph.Error
-import Language.Glyph.IR (toGraph, showGraph')
+import Language.Glyph.HM.InferType
+import Language.Glyph.IR (fromStmts, showGraph', toHM)
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
-import Language.Glyph.InferType
 import Language.Glyph.Logger
 import Language.Glyph.Parse
 import Language.Glyph.Rename
@@ -65,7 +65,8 @@ glyph' =
    addName >=>
    checkVar >=>
    (\ (stmts, _symtab) -> do
-     graph <- toGraph' stmts
+     graph <- fromStmts' stmts
+     -- inferType $ toHM graph
      liftIO $ putStrLn $ showGraph' graph
      return ()))
   where
@@ -78,4 +79,4 @@ glyph' =
         queryExpr (FunE x _ _) = IdentMap.singleton x ()
         queryExpr _ = mempty
         queryName (ident -> x) = IdentMap.singleton x ()
-    toGraph' = runErrorT . toGraph
+    fromStmts' = runErrorT . fromStmts

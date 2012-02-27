@@ -52,16 +52,10 @@ toExp :: ( Data a
         , UniqueMonad m
         ) => [Stmt a] -> m (HM.Exp a)
 toExp stmts =
-  runReaderT' (mconcat' $ map extract stmts) $
+  runReaderT' (mconcat $ map extract stmts) $
   runCont $ callCC $ do
     cc <- freshIdent
     runWithIdentT' cc $ absE (varP cc) (blockToExp stmts)
-
-mconcat' :: Monoid a => [a] -> a
-mconcat' = go
-  where
-    go [] = mempty
-    go (x : xs) = foldl (<>) x xs
 
 stmtsToExp :: ( Data a
              , Monoid a
@@ -177,7 +171,7 @@ blockToExp :: ( Data a
              , UniqueMonad m
              ) => [Stmt a] -> WithIdentT m (HM.Exp a)
 blockToExp stmts =
-  local' (mconcat' (map extract stmts)) .
+  local' (mconcat (map extract stmts)) .
   varDecls . funs . stmtsToExp $ stmts
   where
     varDecls e2 =

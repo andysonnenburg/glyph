@@ -14,6 +14,7 @@ import Compiler.Hoopl
 import Data.Foldable (Foldable, toList)
 import Data.Maybe
 
+import Language.Glyph.Hoopl
 import Language.Glyph.Ident
 import Language.Glyph.Syntax as X (Lit (..),
                                    Name,
@@ -55,35 +56,10 @@ type ExprIdent = Ident
 type Successor = Maybe Label
 
 prettyGraph :: Graph (Insn a) e x -> Doc e'
-prettyGraph = go
+prettyGraph = vcat . foldGraphNodesR f []
   where
-    go :: Graph (Insn a) e x -> Doc e'
-    go GNil =
-      empty
-    go (GUnit unit) =
-      vcat $ block unit []
-    go (GMany entry blocks exit) =
-      vcat $
-      open (flip block []) entry ++
-      body blocks ++
-      open (flip block []) exit
-
-    open :: (a -> [Doc e]) -> MaybeO z a -> [Doc e]
-    open _ NothingO = []
-    open p (JustO x) = p x
-
-    body :: LabelMap (Block (Insn a) C C) -> [Doc e]
-    body blocks =
-      concatMap (flip block []) . mapElems $ blocks
-
-    block :: forall a e x e' .
-             Block (Insn a) e x ->
-             IndexedCO x [Doc e'] [Doc e'] ->
-             IndexedCO e [Doc e'] [Doc e']
-    block = foldBlockNodesB f
-      where
-        f :: forall e x . Insn a e x -> [Doc e'] -> [Doc e']
-        f stmt docs = pretty stmt : docs
+    f :: Insn a e x -> [Doc e'] -> [Doc e']
+    f insn docs = pretty insn : docs
 
 instance Pretty (Insn a e x) where
   pretty = go
@@ -121,8 +97,10 @@ instance Pretty (Stmt a x) where
         text "return" <+> prettyIdent expr
         `prettySuccessor`
         successor
-      go (GotoS label _) =
+      go (GotoS label successor) =
         prettyGoto label
+        `prettySuccessor`
+        successor
       go (IfS expr then' else' successor) =
         text "if" <+> parens (prettyIdent expr) <+>
         prettyLabel then' <+>
@@ -136,7 +114,7 @@ instance Pretty (Stmt a x) where
 
 prettyGoto :: Label -> Doc e
 prettyGoto label =
-  text "goto" <+> prettyLabel label <> semi
+  text "goto" <+> prettyLabel label
 
 instance Pretty (Expr a) where
   pretty = go
@@ -162,7 +140,7 @@ prettySuccessors = go
     go doc (JustC (nextLabel, catchLabel)) =
       doc <+> text "unwind" <+> prettyLabel catchLabel <> semi
       `above`
-      prettyGoto nextLabel
+      prettyGoto nextLabel <> semi
     go doc NothingC =
       doc <> semi
 
@@ -175,8 +153,7 @@ prettySuccessor = go
       doc <> semi
 
 prettyIdent :: Ident -> Doc e
-prettyIdent =
-  text . show
+prettyIdent = text . show
 
 prettyLabel :: Label -> Doc e
 prettyLabel = text . show

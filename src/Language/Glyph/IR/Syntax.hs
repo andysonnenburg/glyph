@@ -138,8 +138,7 @@ prettySuccessors :: Doc e -> MaybeC x (Label, Label) -> Doc e
 prettySuccessors = go
   where
     go doc (JustC (nextLabel, catchLabel)) =
-      doc <+> text "unwind" <+> prettyLabel catchLabel <> semi
-      `above`
+      doc <+> text "unwind" <+> prettyLabel catchLabel <> semi <+>
       prettyGoto nextLabel <> semi
     go doc NothingC =
       doc <> semi

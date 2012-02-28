@@ -89,16 +89,15 @@ tellStmt = tellStmt'
   where
     tellStmt' (Glyph.Stmt a x) =
       localA a $ go x
-    go (Glyph.ExprS e) =
-      tellExpr e >>=
-      tellExprIdent
+    go (Glyph.ExprS e) = do
+      x <- tellExpr e
+      tellS' $ ExprS x
     go (Glyph.VarDeclS name Nothing) =
       tellS $ VarDeclS name
     go (Glyph.VarDeclS name (Just expr)) = do
       tellS $ VarDeclS name
-      tellExpr expr >>=
-        tellE . AssignE name >>=
-        tellExprIdent
+      x <- tellExpr expr >>= tellE . AssignE name
+      tellS' $ ExprS x
     go (Glyph.FunDeclS name params stmts) =
       tellS =<< FunDeclS name params <$> fromFun (map ident params) stmts
     go (Glyph.ReturnS Nothing) = do
@@ -150,19 +149,8 @@ tellStmt = tellStmt'
     go (Glyph.TryFinallyS stmt Nothing) =
       tellStmt stmt
     go (Glyph.TryFinallyS stmt1 (Just stmt2)) = do
-      r <- ask
       (nextLabel, catchLabel) <- freshLabels
-      let maybeCatchLabel = Just catchLabel
-      last <- local (\ r'@R { finally } ->
-                      r' { finally =
-                              let m = local (const r) $ tellStmt stmt2
-                              in Finally { beforeLoopExit =
-                                              m >> beforeLoopExit finally
-                                         , beforeReturn =
-                                              m >> beforeReturn finally
-                                         }
-                         , maybeCatchLabel
-                         }) $ do
+      last <- localFinally catchLabel stmt2 $ do
         tellStmt stmt1
         getLastS $ GotoS nextLabel
       x <- freshIdent
@@ -171,8 +159,28 @@ tellStmt = tellStmt'
       tellStmt stmt2
       tellS $ ThrowS x
       tellLabel nextLabel
+      tellStmt stmt2
     go (Glyph.BlockS stmts) =
       mapM_ tellStmt stmts
+    
+    localFinally catchLabel finallyStmt =
+      local f
+      where
+        f r@R { finally } =
+          r { finally =
+                 let tellFinally = local (const r) $ tellStmt finallyStmt
+                 in Finally { beforeLoopExit = do
+                                 tellFinally
+                                 beforeLoopExit finally
+                            , beforeReturn = do
+                                 tellFinally
+                                 beforeReturn finally
+                            }
+            , maybeCatchLabel
+            }
+          where
+            maybeCatchLabel =
+              Just catchLabel
 
 tellExpr :: ( MonadError ContFlowException m
             , MonadReader (R a) m
@@ -199,21 +207,6 @@ tellExpr = tellExpr'
       tellExpr expr >>=
       tellE . AssignE name
 
-tellExprIdent :: ( MonadReader (R a) m
-                 , MonadWriter (W a) m
-                 , UniqueMonad m
-                 ) => ExprIdent -> m ()
-tellExprIdent x = do
-  R { annotation = a, maybeCatchLabel } <- ask
-  case maybeCatchLabel of
-    Nothing ->
-      tell $ W $ mkMiddle $ Stmt a $ ExprS x NothingC
-    Just catchLabel -> do
-      nextLabel <- freshLabel
-      let last = mkLast $ Stmt a $ ExprS x (JustC (nextLabel, catchLabel))
-          first = mkFirst $ Label nextLabel
-      tell $ W $ last |*><*| first
-
 class TellS a f | f -> a where
   tellS :: (MonadReader (R a) m, MonadWriter (W a) m, UniqueMonad m) => f -> m ()
 
@@ -227,6 +220,26 @@ instance TellS a (Successor -> Stmt a C) where
     firstLabel <- freshLabel
     let first = mkFirst $ Label firstLabel
     tell $ W $ last |*><*| first
+
+tellS' :: ( MonadReader (R a) m
+          , MonadWriter (W a) m
+          , UniqueMonad m
+          ) => (forall x . MaybeC x (Label, Label) -> Stmt a x) -> m ()
+tellS' = tellS . F
+
+newtype F a = F { unF :: forall x . MaybeC x (Label, Label) -> Stmt a x }
+
+instance TellS a (F a) where
+  tellS f = do
+    R { annotation = a, maybeCatchLabel } <- ask
+    case maybeCatchLabel of
+      Nothing ->
+        tell $ W $ mkMiddle $ Stmt a $ unF f NothingC
+      Just catchLabel -> do
+        nextLabel <- freshLabel
+        let last = mkLast $ Stmt a $ unF f (JustC (nextLabel, catchLabel))
+            first = mkFirst $ Label nextLabel
+        tell $ W $ last |*><*| first
 
 tellE :: ( MonadReader (R a) m
          , MonadWriter (W a) m

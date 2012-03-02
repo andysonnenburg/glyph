@@ -171,27 +171,17 @@ tellStmt = tellStmt'
       tellInsn $ Label nextLabel
     go (Glyph.TryFinallyS stmt Nothing) =
       tellStmt stmt
-    go (Glyph.TryFinallyS stmt1 (Just stmt2)) = do
-      (nextLabel, catchLabel) <- freshLabels
-      localFinally catchLabel stmt2 $ do
-        tellStmt stmt1
-        tellInsn $ GotoS nextLabel
-      x <- freshIdent
-      tellInsn $ Catch x catchLabel
-      tellStmt stmt2
-      tellInsn $ ThrowS x
-      tellInsn $ Label nextLabel
-      tellStmt stmt2
+    go (Glyph.TryFinallyS stmt1 (Just stmt2)) =
+      localFinally stmt2 $ tellStmt stmt1
     go (Glyph.BlockS stmts) =
       mapM_ tellStmt stmts
     
-    localFinally catchLabel finallyStmt =
-      local f
+    localFinally finallyStmt m = do
+      local f $ localCatch finallyStmt m
+      tellStmt finallyStmt
       where
         f r@R { finally } =
-          r { finally = finally'
-            , maybeCatchLabel
-            }
+          r { finally = finally' }
           where
             finally' :: forall m .
                         ( MonadError ContFlowException m
@@ -209,8 +199,17 @@ tellStmt = tellStmt'
               where
                 tellFinally =
                   local (const r) $ tellStmt finallyStmt
-            maybeCatchLabel =
-              Just catchLabel
+    
+    localCatch catchStmt m = do
+      (nextLabel, catchLabel) <- freshLabels
+      local (\ r -> r { maybeCatchLabel = Just catchLabel }) $ do
+        m
+        tellInsn $ GotoS nextLabel
+      x <- freshIdent
+      tellInsn $ Catch x catchLabel
+      tellStmt catchStmt
+      tellInsn $ ThrowS x
+      tellInsn $ Label nextLabel
 
 tellExpr :: ( MonadError ContFlowException m
             , MonadReader (R a) m

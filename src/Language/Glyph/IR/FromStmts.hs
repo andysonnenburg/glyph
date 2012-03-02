@@ -7,7 +7,10 @@
   , MultiParamTypeClasses
   , NamedFieldPuns
   , RankNTypes
-  , TypeSynonymInstances #-}
+  , RebindableSyntax
+  , ScopedTypeVariables
+  , TypeSynonymInstances
+  , UndecidableInstances #-}
 module Language.Glyph.IR.FromStmts
        ( ContFlowException (..)
        , fromStmts
@@ -17,23 +20,28 @@ import Control.Comonad
 import Control.Exception hiding (finally)
 import Compiler.Hoopl hiding ((<*>))
 import qualified Compiler.Hoopl as Hoopl
-import Control.Monad.Error
-import Control.Monad.Reader
-import Control.Monad.Writer
+import Control.Monad (ap, join, liftM)
+import qualified Control.Monad as Monad
+import Control.Monad.Error.Class (MonadError)
+import Control.Monad.Reader (MonadReader, runReaderT)
 
+import Data.Monoid (Monoid)
+import qualified Data.Monoid as Monoid
 import Data.Typeable
 
+import Language.Glyph.Hoopl
+import Language.Glyph.Hoopl.Monad.Writer
 import Language.Glyph.IR.RemoveUnreachable
 import Language.Glyph.IR.Syntax
 import Language.Glyph.Ident
 import qualified Language.Glyph.Syntax.Internal as Glyph
 
-import Prelude hiding (last)
+import Prelude hiding (Monad (..), (=<<), last)
 
 fromStmts :: ( Monoid a
-           , MonadError ContFlowException m
-           , UniqueMonad m
-           ) => [Glyph.Stmt a] -> m (Graph (Insn a) O C)
+             , MonadError ContFlowException m
+             , UniqueMonad m
+             ) => [Glyph.Stmt a] -> m (Graph (Insn a) O C)
 fromStmts = fromFun []
 
 fromFun :: ( Monoid a
@@ -41,26 +49,29 @@ fromFun :: ( Monoid a
            , UniqueMonad m
            ) => [Ident] -> [Glyph.Stmt a] -> m (Graph (Insn a) O C)
 fromFun params stmts = do
-  graph <- runReaderT' r . liftM unW . execWriterT . mapM_ tellStmt $ stmts
+  graph <- liftM unW . runReaderT' r . execWriterT . mapM_ tellStmt $ stmts
   let graph' = graph |<*>| mkLast ReturnVoid
   return $ removeUnreachable graph'
   where
+    (>>=) = (Monad.>>=)
+    return = Monad.return
+    
     runReaderT' = flip runReaderT
     
-    r = R { annotation = mconcat $ map extract stmts
+    r = R { annotation = Monoid.mconcat $ map extract stmts
           , finally = initFinally
           , maybeCatchLabel = Nothing
           , maybeLoopLabels = Nothing
           }
 
 initFinally :: Monad m => Finally m
-initFinally = Finally { beforeLoopExit
-                      , beforeReturn
+initFinally = Finally { tellBeforeLoopExit
+                      , tellBeforeReturn
                       }
   where
-    beforeLoopExit =
+    tellBeforeLoopExit =
       return ()
-    beforeReturn =
+    tellBeforeReturn =
       return ()
 
 data ContFlowException
@@ -79,86 +90,97 @@ instance Show ContFlowException where
 
 instance Exception ContFlowException
 
-tellStmt :: ( MonadError ContFlowException m
+tellStmt :: forall a m .
+            ( MonadError ContFlowException m
             , MonadReader (R a) m
-            , MonadWriter (W a) m
             , Monoid a
             , UniqueMonad m
-            ) => Glyph.Stmt a -> m ()
+            ) => Glyph.Stmt a -> WriterT (W a) m O O ()
 tellStmt = tellStmt'
   where
     tellStmt' (Glyph.Stmt a x) =
       localA a $ go x
+    go :: Glyph.StmtView a -> WriterT (W a) m O O ()
     go (Glyph.ExprS e) = do
       x <- tellExpr e
-      tellS' $ ExprS x
+      tellInsn $ F $ ExprS x
     go (Glyph.VarDeclS name Nothing) =
-      tellS $ VarDeclS name
+      tellInsn $ VarDeclS name
     go (Glyph.VarDeclS name (Just expr)) = do
-      tellS $ VarDeclS name
-      x <- tellExpr expr >>= tellE . AssignE name
-      tellS' $ ExprS x
+      tellInsn $ VarDeclS name
+      x <- tellExprInsn . AssignE name =<< tellExpr expr
+      tellInsn $ F $ ExprS x
     go (Glyph.FunDeclS name params stmts) =
-      tellS =<< FunDeclS name params <$> fromFun (map ident params) stmts
+      tellInsn =<< FunDeclS name params <$> fromFun (map ident params) stmts
     go (Glyph.ReturnS Nothing) = do
-      x <- tellE $ LitE VoidL
-      join $ asks $ beforeReturn . finally
-      tellS $ ReturnS x
+      x <- tellExprInsn $ LitE VoidL
+      join $ asks $ tellBeforeReturn . finally
+      tellInsn $ ReturnS x
+      nextLabel <- freshLabel
+      tellInsn $ Label nextLabel
     go (Glyph.ReturnS (Just expr)) = do
       x <- tellExpr expr
-      join $ asks $ beforeReturn . finally
-      tellS $ ReturnS x
+      join $ asks $ tellBeforeReturn . finally
+      nextLabel <- freshLabel
+      tellInsn $ ReturnS x
+      tellInsn $ Label nextLabel
     go (Glyph.IfThenElseS expr stmt Nothing) = do
       x <- tellExpr expr
       (thenLabel, nextLabel) <- freshLabels
-      tellS $ IfS x thenLabel nextLabel
-      tellLabel thenLabel
+      tellInsn $ IfS x thenLabel nextLabel
+      tellInsn $ Label thenLabel
       tellStmt stmt
-      tellGoto nextLabel
-      tellLabel nextLabel
+      tellInsn $ GotoS nextLabel
+      tellInsn $ Label nextLabel
     go (Glyph.IfThenElseS expr stmt1 (Just stmt2)) = do
       x <- tellExpr expr
       (thenLabel, elseLabel, nextLabel) <- freshLabels
-      tellS $ IfS x thenLabel elseLabel
-      tellLabel thenLabel
+      tellInsn $ IfS x thenLabel elseLabel
+      tellInsn $ Label thenLabel
       tellStmt stmt1
-      tellGoto nextLabel
-      tellLabel elseLabel
+      tellInsn $ GotoS nextLabel
+      tellInsn $ Label elseLabel
       tellStmt stmt2
-      tellGoto nextLabel
-      tellLabel nextLabel
+      tellInsn $ GotoS nextLabel
+      tellInsn $ Label nextLabel
     go (Glyph.WhileS expr stmt) = do
       testLabel <- freshLabel
-      tellLabel testLabel
+      tellInsn $ GotoS testLabel
+      tellInsn $ Label testLabel
       x <- tellExpr expr
       (thenLabel, nextLabel) <- freshLabels
-      tellS $ IfS x thenLabel nextLabel
-      tellLabel thenLabel
+      tellInsn $ IfS x thenLabel nextLabel
+      tellInsn $ Label thenLabel
       localLoop nextLabel testLabel $ tellStmt stmt
-      tellGoto testLabel
-      tellLabel nextLabel
+      tellInsn $ GotoS testLabel
+      tellInsn $ Label nextLabel
     go Glyph.BreakS = do
-      join $ asks $ beforeLoopExit . finally
-      askBreakLabel >>= tellS . GotoS
+      join $ asks $ tellBeforeLoopExit . finally
+      tellInsn . GotoS =<< askBreakLabel
+      nextLabel <- freshLabel
+      tellInsn $ Label nextLabel
     go Glyph.ContinueS = do
-      join $ asks $ beforeLoopExit . finally
-      askContinueLabel >>= tellS . GotoS
-    go (Glyph.ThrowS expr) =
-      tellExpr expr >>=
-      tellS . ThrowS
+      join $ asks $ tellBeforeLoopExit . finally
+      tellInsn . GotoS =<< askContinueLabel
+      nextLabel <- freshLabel
+      tellInsn $ Label nextLabel
+    go (Glyph.ThrowS expr) = do
+      x <- tellExpr expr
+      tellInsn $ ThrowS x
+      nextLabel <- freshLabel
+      tellInsn $ Label nextLabel
     go (Glyph.TryFinallyS stmt Nothing) =
       tellStmt stmt
     go (Glyph.TryFinallyS stmt1 (Just stmt2)) = do
       (nextLabel, catchLabel) <- freshLabels
-      last <- localFinally catchLabel stmt2 $ do
+      localFinally catchLabel stmt2 $ do
         tellStmt stmt1
-        getLastS $ GotoS nextLabel
+        tellInsn $ GotoS nextLabel
       x <- freshIdent
-      let first = mkFirst $ Catch x catchLabel
-      tell $ W $ last |*><*| first
+      tellInsn $ Catch x catchLabel
       tellStmt stmt2
-      tellS $ ThrowS x
-      tellLabel nextLabel
+      tellInsn $ ThrowS x
+      tellInsn $ Label nextLabel
       tellStmt stmt2
     go (Glyph.BlockS stmts) =
       mapM_ tellStmt stmts
@@ -167,127 +189,111 @@ tellStmt = tellStmt'
       local f
       where
         f r@R { finally } =
-          r { finally =
-                 let tellFinally = local (const r) $ tellStmt finallyStmt
-                 in Finally { beforeLoopExit = do
-                                 tellFinally
-                                 beforeLoopExit finally
-                            , beforeReturn = do
-                                 tellFinally
-                                 beforeReturn finally
-                            }
+          r { finally = finally'
             , maybeCatchLabel
             }
           where
+            finally' :: forall m .
+                        ( MonadError ContFlowException m
+                        , MonadReader (R a) m
+                        , UniqueMonad m
+                        ) => Finally (WriterT (W a) m) 
+            finally' =
+              Finally { tellBeforeLoopExit = do
+                           tellFinally
+                           tellBeforeLoopExit finally
+                      , tellBeforeReturn = do
+                           tellFinally
+                           tellBeforeReturn finally
+                      }
+              where
+                tellFinally =
+                  local (const r) $ tellStmt finallyStmt
             maybeCatchLabel =
               Just catchLabel
 
 tellExpr :: ( MonadError ContFlowException m
             , MonadReader (R a) m
-            , MonadWriter (W a) m
             , Monoid a
             , UniqueMonad m
-            ) => Glyph.Expr a -> m ExprIdent
+            ) => Glyph.Expr a -> WriterT (W a) m O O ExprIdent
 tellExpr = tellExpr'
   where
     tellExpr' (Glyph.Expr a x) =
       localA a $ go x
     go (Glyph.LitE lit) =
-      tellE $ LitE lit
+      tellExprInsn $ LitE lit
     go (Glyph.NotE expr) =
-      tellExpr expr >>=
-      tellE . NotE
+      tellExprInsn . NotE =<< tellExpr expr
     go (Glyph.VarE name) =
-      tellE $ VarE name
+      tellExprInsn $ VarE name
     go (Glyph.FunE x params stmts) =
-      tellE =<< FunE x params <$> fromFun (map ident params) stmts
+      tellExprInsn =<< FunE x params <$> fromFun (map ident params) stmts
     go (Glyph.ApplyE expr exprs) =
-      tellE =<< ApplyE <$> tellExpr expr <*> mapM tellExpr exprs
+      tellExprInsn =<< ApplyE <$> tellExpr expr <*> mapM tellExpr exprs
     go (Glyph.AssignE name expr) =
-      tellExpr expr >>=
-      tellE . AssignE name
+      tellExprInsn . AssignE name =<< tellExpr expr
 
-class TellS a f | f -> a where
-  tellS :: (MonadReader (R a) m, MonadWriter (W a) m, UniqueMonad m) => f -> m ()
+class TellInsn a e x f | f -> a e x where
+  tellInsn :: (MonadReader (R a) m, UniqueMonad m) => f -> WriterT (W a) m e x ()
 
-instance TellS a (Stmt a O) where
-  tellS x =
-    tell =<< W . mkMiddle <$> (Stmt <$> askA <*> pure x)
+instance TellInsn a C O (Insn a C O) where
+  tellInsn = tell . mkW . mkFirst
 
-instance TellS a (Successor -> Stmt a C) where
-  tellS f = do
-    last <- liftM mkLast $ Stmt <$> askA <*> (f <$> asks maybeCatchLabel)
-    firstLabel <- freshLabel
-    let first = mkFirst $ Label firstLabel
-    tell $ W $ last |*><*| first
+instance TellInsn a O O (Insn a O O) where
+  tellInsn = tell . mkW . mkMiddle
 
-tellS' :: ( MonadReader (R a) m
-          , MonadWriter (W a) m
-          , UniqueMonad m
-          ) => (forall x . MaybeC x (Label, Label) -> Stmt a x) -> m ()
-tellS' = tellS . F
+instance TellInsn a O C (Insn a O C) where
+  tellInsn = tell . mkW . mkLast
+
+instance TellInsn a O O (Stmt a O) where
+  tellInsn x =
+    tellInsn =<< Stmt <$> askA <*> pure x
+
+instance TellInsn a O C (Successor -> Stmt a C) where
+  tellInsn f = tellInsn =<< Stmt <$> askA <*> (f <$> asks maybeCatchLabel)
 
 newtype F a = F { unF :: forall x . MaybeC x (Label, Label) -> Stmt a x }
 
-instance TellS a (F a) where
-  tellS f = do
+instance TellInsn a O O (F a) where
+  tellInsn f = do
     R { annotation = a, maybeCatchLabel } <- ask
     case maybeCatchLabel of
       Nothing ->
-        tell $ W $ mkMiddle $ Stmt a $ unF f NothingC
+        tellInsn $ Stmt a $ unF f NothingC
       Just catchLabel -> do
         nextLabel <- freshLabel
-        let last = mkLast $ Stmt a $ unF f (JustC (nextLabel, catchLabel))
-            first = mkFirst $ Label nextLabel
-        tell $ W $ last |*><*| first
+        tellInsn $ Stmt a $ unF f (JustC (nextLabel, catchLabel))
+        tellInsn $ Label nextLabel
 
-tellE :: ( MonadReader (R a) m
-         , MonadWriter (W a) m
-         , UniqueMonad m
-         ) => Expr a -> m ExprIdent
-tellE e = do
-  x <- freshIdent
+tellExprInsn :: ( MonadReader (R a) m
+                , UniqueMonad m
+                ) => Expr a -> WriterT (W a) m O O ExprIdent
+tellExprInsn expr = do
   R { annotation = a, maybeCatchLabel } <- ask
+  x <- freshIdent
   case maybeCatchLabel of
     Nothing ->
-      tell $ W $ mkMiddle $ Expr a x e NothingC
+      tellInsn $ Expr a x expr NothingC
     Just catchLabel -> do
       nextLabel <- freshLabel
-      let last = mkLast $ Expr a x e $ JustC (nextLabel, catchLabel)
-          first = mkFirst $ Label nextLabel
-      tell $ W $ last |*><*| first
-  return x    
+      tellInsn $ Expr a x expr $ JustC (nextLabel, catchLabel)
+      tellInsn $ Label nextLabel
+  return x
 
-tellLabel :: (MonadReader (R a) m, MonadWriter (W a) m) => Label -> m ()
-tellLabel label = do
-  last <- getLastS $ GotoS label
-  let first = mkFirst $ Label label
-  tell $ W $ last |*><*| first
-
-tellGoto :: ( MonadReader (R a) m
-            , MonadWriter (W a) m
-            , UniqueMonad m
-            ) => Label -> m ()
-tellGoto label = do
-  last <- getLastS $ GotoS label
-  firstLabel <- freshLabel
-  let first = mkFirst $ Label firstLabel
-  tell $ W $ last |*><*| first
-
-getLastS :: MonadReader (R a) m => (Successor -> Stmt a C) -> m (Graph (Insn a) O C)
-getLastS f = do
-  R { annotation = a, maybeCatchLabel } <- ask
-  return $ mkLast $ Stmt a $ f maybeCatchLabel
-
-localLoop :: MonadReader (R a) m => Label -> Label -> m b -> m b
+localLoop :: MonadReader (R a) m =>
+             Label -> Label -> WriterT (W a) m ex ex b -> WriterT (W a) m ex ex b
 localLoop breakLabel continueLabel =
-  local (\ r -> r { finally = (finally r) { beforeLoopExit = return () }
-                  , maybeLoopLabels
-                  })
+  local (\ r@R { finally } ->
+          r { finally = finally { tellBeforeLoopExit = return () }
+            , maybeLoopLabels
+            })
   where
     maybeLoopLabels = Just LoopLabels { breakLabel, continueLabel }
 
-askBreakLabel :: (MonadError ContFlowException m, MonadReader (R a) m) => m Label
+askBreakLabel :: ( MonadError ContFlowException m
+                 , MonadReader (R a) m
+                 ) => WriterT (W a) m ex ex Label
 askBreakLabel = do
   R { maybeLoopLabels } <- ask
   case maybeLoopLabels of
@@ -298,7 +304,7 @@ askBreakLabel = do
 
 askContinueLabel :: ( MonadError ContFlowException m
                     , MonadReader (R a) m
-                    ) => m Label
+                    ) => WriterT (W a) m ex ex Label
 askContinueLabel = do
   R { maybeLoopLabels } <- ask
   case maybeLoopLabels of
@@ -307,10 +313,10 @@ askContinueLabel = do
     Just (LoopLabels { continueLabel }) ->
       return continueLabel
 
-localA :: MonadReader (R a) m => a -> m b -> m b
+localA :: MonadReader (R a) m => a -> WriterT (W a) m ex ex b -> WriterT (W a) m ex ex b
 localA a = local (\ r -> r { annotation = a })
 
-askA :: MonadReader (R a) m => m a
+askA :: MonadReader (R a) m => WriterT (W a) m ex ex a
 askA = asks annotation
 
 data R a
@@ -318,29 +324,21 @@ data R a
       , finally :: forall m .
         ( MonadError ContFlowException m
         , MonadReader (R a) m
-        , MonadWriter (W a) m
         , UniqueMonad m
-        ) => Finally m
+        ) => Finally (WriterT (W a) m)
       , maybeCatchLabel :: Maybe Label
       , maybeLoopLabels :: Maybe LoopLabels
       }
 
 data Finally m
-  = Finally { beforeLoopExit :: m ()
-            , beforeReturn :: m ()
+  = Finally { tellBeforeLoopExit :: m O O ()
+            , tellBeforeReturn :: m O O ()
             }
 
 data LoopLabels
   = LoopLabels { breakLabel :: Label
                , continueLabel :: Label
                }
-
-newtype W a = W { unW :: Graph (Insn a) O O }
-
-instance Monoid (W a) where
-  mempty = W emptyGraph
-  W a `mappend` W b = W $ a |<*>| b
-  mconcat = W . catGraphs . map unW
 
 class FreshLabels a where
   freshLabels :: UniqueMonad m => m a
@@ -354,17 +352,25 @@ instance FreshLabels (Label, Label) where
 instance FreshLabels (Label, Label, Label) where
   freshLabels = (,,) <$> freshLabel <*> freshLabel <*> freshLabel
 
+type W a = WrappedSemigroupoid (WrappedGraph (Insn a))
+
+mkW :: Graph (Insn a) e x -> W a e x
+mkW = Semi . WrapGraph
+
+unW :: W a O O -> Graph (Insn a) O O
+unW = unwrapGraph . unwrapSemigroupoid (WrapGraph emptyGraph)
+
 (|<*>|) :: NonLocal n => Graph n e O -> Graph n O x -> Graph n e x
 (|<*>|) = (Hoopl.<*>)
 infixl 3 |<*>|
 
-pure :: Monad m => a -> m a
+pure :: Monad m => a -> m ex ex a
 pure = return
 
-(<$>) :: Monad m => (a -> b) -> m a -> m b
+infixl 4 <$>, <*>
+
+(<$>) :: Monad.Monad m => (a -> b) -> m a -> m b
 (<$>) = liftM
 
-(<*>) :: Monad m => m (a -> b) -> m a -> m b
+(<*>) :: Monad.Monad m => m (a -> b) -> m a -> m b
 (<*>) = ap
-
-infixl 4 <$>, <*>

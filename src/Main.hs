@@ -1,10 +1,11 @@
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, ScopedTypeVariables, ViewPatterns #-}
 module Main (main) where
 
 import Control.Monad.Error hiding (ErrorT (..))
 
 import qualified Data.ByteString.Lazy as ByteString
 import Data.Generics
+import Data.Monoid
 
 import Language.Glyph.AddCallSet
 import Language.Glyph.AddExtraSet
@@ -17,13 +18,15 @@ import Language.Glyph.CheckFun
 import Language.Glyph.CheckReturn
 import Language.Glyph.CheckVar
 import Language.Glyph.Error
-import Language.Glyph.Ident
+import Language.Glyph.HM.InferType
+import Language.Glyph.IR (fromStmts, showGraph', toHM)
+import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
-import Language.Glyph.InferType
 import Language.Glyph.Logger
-import Language.Glyph.Monoid
 import Language.Glyph.Parse
 import Language.Glyph.Rename
+import Language.Glyph.Syntax
+import Language.Glyph.Unique
 
 import System.Console.CmdArgs hiding (args, name)
 import System.Environment
@@ -42,18 +45,18 @@ main = do
   progName <- getProgName
   Glyph {} <- cmdArgs (glyph progName)
   glyph'
-    
+
 glyph' :: IO ()
 glyph' =
   ByteString.getContents >>=
-  runLoggerT . runIdentSupplyT .
+  runLoggerT . runUniqueSupplyT .
   (runErrorT . parse >=>
-   addEmptySymtab >=>
+   mkSymtab >=>
    checkBreak >=>
    checkContinue >=>
    checkReturn >=>
    rename >=>
-   addSymtab >=>
+   addIdents >=>
    addSort >=>
    checkFun >=>
    addFreeVars >=>
@@ -61,11 +64,22 @@ glyph' =
    addExtraSet >=>
    addName >=>
    checkVar >=>
-   inferType >=>
-   const (return ()))
+   (\ (stmts, symtab) -> do
+     ir <- fromStmts' stmts
+     liftIO $ putStrLn $ showGraph' ir
+     hm <- toHM ir symtab
+     liftIO $ print hm
+     (_, typ) <- inferType hm
+     liftIO $ print typ
+     return ()))
   where
-    addEmptySymtab stmts = return (stmts, ())
-    addSymtab (stmts, _) = return (stmts, idents stmts)
-    idents = everything (<>) (mempty `mkQ` q)
+    mkSymtab stmts = return (stmts, ())
+    addIdents (stmts, _) = return (stmts, idents stmts)
+    idents :: forall a . Data a => [Stmt a] -> IdentMap ()
+    idents = everything (<>) (mempty `mkQ` queryExpr `extQ` queryName)
       where
-        q n = IdentMap.singleton n ()
+        queryExpr :: ExprView a -> IdentMap ()
+        queryExpr (FunE x _ _) = IdentMap.singleton x ()
+        queryExpr _ = mempty
+        queryName (ident -> x) = IdentMap.singleton x ()
+    fromStmts' = runErrorT . fromStmts

@@ -1,20 +1,8 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 module Language.Glyph.IdentSet
-       ( IdentSet
-       , (\\)
-       , empty
-       , fromList
-       , insert
-       , intersection
-       , isSubsetOf
-       , map
-       , member
-       , notMember
-       , null
-       , singleton
-       , toList
-       , union
-       , unions
+       ( module X
+       , IdentSet
        ) where
 
-import Language.Glyph.IdentSet.Internal
+import Language.Glyph.IdentSet.Internal (IdentSet)
+import Language.Glyph.IdentSet.Internal as X hiding (IdentSet (..))

@@ -5,4 +5,3 @@ module Language.Glyph.Logger.Class
 
 class Monad m => MonadLogger w m | m -> w where
   log :: w -> m ()
-  

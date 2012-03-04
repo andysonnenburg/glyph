@@ -10,7 +10,7 @@ import Prelude hiding (True, False)
 
 data Token
   = Var
-  | Fun
+  | Fn
   | Name Text
   | Period
   | Comma
@@ -40,7 +40,7 @@ instance Show Token where
   show x =
     case x of
       Var -> "var"
-      Fun -> "fun"
+      Fn -> "fn"
       Name a -> "`" ++ Text.unpack a ++ "'"
       Period -> "."
       Comma -> ","

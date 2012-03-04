@@ -3,14 +3,12 @@ module Language.Glyph.HM.Syntax
        ( Exp (..)
        , ExpView (..)
        , Pat (..)
+       , Lit (..)
        , varE
        , appE
        , absE
        , letE
-       , boolE
-       , voidE
-       , intE
-       , doubleE
+       , litE
        , tupleE
        , undefined'
        , asTypeOf'
@@ -29,6 +27,7 @@ import Control.Monad.Reader
 import Data.Data
 
 import Language.Glyph.Ident
+import Language.Glyph.Syntax (Lit (..))
 import Language.Glyph.View
 
 data Exp a = Exp a (ExpView a) deriving (Show, Typeable, Data, Functor)
@@ -38,13 +37,11 @@ data ExpView a
   | AbsE Pat (Exp a)
   | AppE (Exp a) (Exp a)
   | LetE Pat (Exp a) (Exp a)
-    
-  | BoolE Bool
-  | VoidE
-  | IntE Int
-  | DoubleE Double
+
+  | LitE Lit
+
   | TupleE [Exp a]
-    
+
   | Undefined
   | AsTypeOf
   | Fix
@@ -55,7 +52,6 @@ data ExpView a
 
 instance View (Exp a) (ExpView a) where
   view (Exp _ x) = x
-  updateView (Exp x _) = Exp x
 
 data Pat
   = VarP Ident
@@ -85,25 +81,10 @@ letE x e e' = do
   v <- liftM2 (LetE x) e e'
   return $ Exp a v
 
-boolE :: MonadReader a m => Bool -> m (Exp a)
-boolE bool = do
+litE :: MonadReader a m => Lit -> m (Exp a)
+litE lit = do
   a <- ask
-  return $ Exp a $ BoolE bool
-
-voidE :: MonadReader a m => m (Exp a)
-voidE = do
-  a <- ask
-  return $ Exp a VoidE
-
-intE :: MonadReader a m => Int -> m (Exp a)
-intE x = do
-  a <- ask
-  return $ Exp a $ IntE x
-
-doubleE :: MonadReader a m => Double -> m (Exp a)
-doubleE x = do
-  a <- ask
-  return $ Exp a $ DoubleE x
+  return $ Exp a $ LitE lit
 
 tupleE :: MonadReader a m => [m (Exp a)] -> m (Exp a)
 tupleE x = do

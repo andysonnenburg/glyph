@@ -28,7 +28,7 @@ data Type
   | Double
   | Bool
   | Void
-    
+
   | Tuple [Type]
   | Cont Type deriving (Show, Typeable, Data)
 
@@ -40,7 +40,7 @@ showTypes = go
     go (a, b) =
       flip evalState (0, IdentMap.empty) $
       liftM2 (,) (showTypeM a) (showTypeM b)
-    showTypeM tau = 
+    showTypeM tau =
       case tau of
         Var x ->
           showVarM x
@@ -61,13 +61,13 @@ showTypes = go
           return $ "(" ++ intercalate ", " xs' ++ ")"
         Cont a -> do
           a' <- showTypeM a
-          return $ "Cont#" ++ a'
+          return $ "Cont# " ++ a'
     showVarM x = do
       (a, m) <- get
       case IdentMap.lookup x m of
         Nothing -> do
           let (q, r) = a `quotRem` size
-              s = '\'':toEnum (r + min):if q == 0 then [] else show q
+              s = '\'' : toEnum (r + min) : if q == 0 then [] else show q
           put (a + 1, IdentMap.insert x s m)
           return s
         Just s ->

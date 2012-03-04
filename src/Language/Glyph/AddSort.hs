@@ -7,11 +7,12 @@ module Language.Glyph.AddSort
 import Control.Applicative
 import Control.Exception
 
+import Data.Monoid
+
 import Language.Glyph.Annotation.Location
 import Language.Glyph.Annotation.Sort
 import Language.Glyph.Generics
 import Language.Glyph.Logger
-import Language.Glyph.Monoid
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.Syntax
@@ -31,16 +32,16 @@ sort' =
   (const mempty `ext1Q` queryStmt `ext1Q` queryExpr)
   where
     queryStmt (FunDeclS name params _) =
-      IdentMap.fromList $ fun name:vars params
+      IdentMap.fromList $ fun name : vars params
     queryStmt (VarDeclS name _) =
       IdentMap.singleton (ident name) Var
     queryStmt _ =
       mempty
-    
+
     queryExpr (FunE a params _) =
-      IdentMap.fromList $ (a, Fun):vars params
+      IdentMap.fromList $ (a, Fun) : vars params
     queryExpr _ =
       mempty
-    
+
     fun x = (ident x, Fun)
     vars xs = zip (map ident xs) (repeat Var)

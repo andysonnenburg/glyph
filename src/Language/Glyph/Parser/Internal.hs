@@ -27,7 +27,7 @@ import Data.Text.Encoding.Error
 import Data.Typeable
 
 import Language.Glyph.Annotation.Location
-import Language.Glyph.Ident
+import Language.Glyph.Unique
 
 newtype ParserT m a
   = ParserT { unParserT :: StateT S m a
@@ -47,9 +47,9 @@ instance MonadError ParseException m => Monad (ParserT m) where
     throwError $ ParseError l msg
 
 instance ( MonadError ParseException m
-         , MonadIdentSupply m
-         ) => MonadIdentSupply (ParserT m) where
-  newIdent = lift newIdent
+         , UniqueMonad m
+         ) => UniqueMonad (ParserT m) where
+  freshUnique = lift freshUnique
 
 data ParseException
   = ParseError Location String
@@ -83,7 +83,7 @@ runParserT (ParserT m) buffer = evalStateT m initState
   where
     initState =
       S { position = Position 1 1
-        , buffer 
+        , buffer
         }
 
 get :: Monad m => ParserT m S

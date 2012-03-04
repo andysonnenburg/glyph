@@ -18,7 +18,7 @@ import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.Syntax
 
-checkReturn :: forall a b m.
+checkReturn :: forall a b m .
               ( Data a
               , HasLocation a
               , MonadLogger Message m
@@ -28,13 +28,13 @@ checkReturn (stmts, symtab) = do
   return (stmts, symtab)
   where
     checkReturn' = runReaderT' . query
-    
+
     query :: Data c => c -> ReaderT Bool m ()
     query = everythingBut (>>)
             ((return (), False) `mkQ`
              queryStmt `extQ`
              queryStmtView)
-    
+
     queryStmt :: Stmt a -> (ReaderT Bool m (), Bool)
     queryStmt x@(view -> ReturnS _) = (m, True)
       where
@@ -43,7 +43,7 @@ checkReturn (stmts, symtab) = do
           when illegalReturn $
             runReaderT (logError IllegalReturn) (location x)
     queryStmt _ = (return (), False)
-    
+
     queryStmtView :: StmtView a -> (ReaderT Bool m (), Bool)
     queryStmtView (TryFinallyS stmt1 stmt2) = (m, True)
       where
@@ -51,7 +51,7 @@ checkReturn (stmts, symtab) = do
           query stmt1
           local (const True) $ query stmt2
     queryStmtView _ = (return (), False)
-    
+
     runReaderT' = flip runReaderT False
 
 data CheckReturnException

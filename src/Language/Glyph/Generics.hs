@@ -20,10 +20,10 @@ everythingButFuns k f =
   everythingBut k (f' `ext1Q` gS `ext1Q` gE)
   where
     f' x = (f x, False)
-    
+
     gS x@(FunDeclS _ _ _) = (f x, True)
     gS x = (f x, False)
-    
+
     gE x@(FunE _ _ _) = (f x, True)
     gE x = (f x, False)
 
@@ -32,11 +32,11 @@ everythingThisScope k f =
   everythingBut k (f' `ext1Q` gS `ext1Q` gE)
   where
     f' x = (f x, False)
-    
+
     gS x@(FunDeclS _ _ _) = (f x, True)
     gS x@(BlockS _) = (f x, True)
     gS x = (f x, False)
-    
+
     gE x@(FunE _ _ _) = (f x, True)
     gE x = (f x, False)
 
@@ -47,10 +47,10 @@ everywhereThisScope =
     queryStmt (FunDeclS _ _ _) = True
     queryStmt (BlockS _) = True
     queryStmt _ = False
-    
+
     queryExpr (FunE _ _ _) = True
     queryExpr _ = False
-    
+
 
 everywhereThisScopeM :: Monad m => GenericM m -> GenericM m
 everywhereThisScopeM f =
@@ -59,7 +59,7 @@ everywhereThisScopeM f =
     f' x = do
       x' <- f x
       return (x', False)
-    
+
     transformStmt x@(FunDeclS _ _ _) = do
       x' <- f x
       return (x', True)
@@ -77,7 +77,7 @@ everywhereThisScopeM f =
       x' <- f x
       return (x', False)
 
-everywhereButM' :: Monad m => (forall a. Data a => a -> m (a, Bool)) -> GenericM m
+everywhereButM' :: Monad m => (forall a . Data a => a -> m (a, Bool)) -> GenericM m
 everywhereButM' f x = do
   (x', stop) <- f x
   if stop
@@ -89,7 +89,7 @@ mkM' = extM' f
   where
     f x = return (x, False)
 
-extM' ::  ( Monad m
+extM' :: ( Monad m
          , Typeable a
          , Typeable b
          ) => (a -> m (a, Bool)) -> (b -> m (b, Bool)) -> a -> m (a, Bool)
@@ -99,8 +99,8 @@ ext1M' :: ( Monad m
          , Data d
          , Typeable1 t
          ) =>
-         (forall e. Data e => e -> m (e, Bool)) ->
-         (forall f. Data f => t f -> m (t f, Bool)) ->
+         (forall e . Data e => e -> m (e, Bool)) ->
+         (forall f . Data f => t f -> m (t f, Bool)) ->
          d -> m (d, Bool)
 ext1M' def ext = unM (M def `ext1` M ext)
 

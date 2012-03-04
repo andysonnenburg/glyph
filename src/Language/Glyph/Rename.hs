@@ -29,7 +29,7 @@ import Language.Glyph.Ident.Internal
 import Language.Glyph.Message
 import Language.Glyph.Syntax.Internal
 
-rename :: forall a b m.
+rename :: forall a b m .
          ( Data a
          , HasLocation a
          , MonadLogger Message m
@@ -39,19 +39,19 @@ rename = go
     go (stmts, symtab) = do
       stmts' <- evalStateT' $ rename' stmts
       return (stmts', symtab)
-    
+
     evalStateT' m = evalStateT m initState
-    
+
     rename' stmts = do
       everythingThisScope (>>) (return () `mkQ` defineFunDecl) stmts
       everywhereThisScopeM (mkM transformStmt `extM` transformExpr) stmts
-    
+
     defineFunDecl :: Stmt a -> StateT S m ()
     defineFunDecl x@(view -> FunDeclS name _ _) =
       runReaderT (defineName name) (location x)
     defineFunDecl _ =
       return ()
-    
+
     transformStmt :: Stmt a -> StateT S m (Stmt a)
     transformStmt x@(view -> VarDeclS name _) = do
       runReaderT (defineName name) (location x)
@@ -60,26 +60,26 @@ rename = go
       withScope $ do
         runReaderT (mapM_ defineName params) (location x)
         stmts' <- rename' stmts
-        return $ x `updateView` FunDeclS name params stmts'
+        return $ x `update` FunDeclS name params stmts'
     transformStmt x@(view -> BlockS stmts) =
       withScope $ do
         stmts' <- rename' stmts
-        return $ x `updateView` BlockS stmts'
+        return $ x `update` BlockS stmts'
     transformStmt x =
       return x
-    
+
     transformExpr :: Expr a -> StateT S m (Expr a)
     transformExpr x@(view -> VarE name) = do
       name' <- runReaderT (updateName name) (location x)
-      return $ x `updateView` VarE name'
+      return $ x `update` VarE name'
     transformExpr x@(view -> FunE a params stmts) =
       withScope $ do
         runReaderT (mapM_ defineName params) (location x)
         stmts' <- rename' stmts
-        return $ x `updateView` FunE a params stmts'
+        return $ x `update` FunE a params stmts'
     transformExpr x@(view -> AssignE name expr) = do
       name' <- runReaderT (updateName name) (location x)
-      return $ x `updateView` AssignE name' expr
+      return $ x `update` AssignE name' expr
     transformExpr x =
       return x
 
@@ -137,7 +137,7 @@ defineName x = do
     just _ =
       logError $ AlreadyDefined $ view x
 
-insertName :: MonadState S m => Name -> m () 
+insertName :: MonadState S m => Name -> m ()
 insertName x = do
   s@S {..} <- get
   put s { scope = Map.insert (view x) (ident x) scope }
@@ -148,7 +148,7 @@ lookupIdent :: ( MonadReader Location m
               ) => Name -> m Ident
 lookupIdent x = do
   S {..} <- get
-  maybe nothing just $ lookupIdent' (view x) (scope:scopes)
+  maybe nothing just $ lookupIdent' (view x) (scope : scopes)
   where
     nothing = do
       logError $ NotFound (view x)
@@ -161,15 +161,15 @@ lookupIdent' x = go
   where
     go [] =
       Nothing
-    go (s:ss) =
-      case Map.lookup x s of 
+    go (s : ss) =
+      case Map.lookup x s of
         Nothing -> lookupIdent' x ss
         v@(Just _) -> v
 
 withScope :: MonadState S m => m a -> m a
 withScope m = do
   s@S {..} <- get
-  put s { scope = mempty, scopes = scope:scopes }
+  put s { scope = mempty, scopes = scope : scopes }
   a <- m
   modify (\ s' -> s' { scope, scopes })
   return a

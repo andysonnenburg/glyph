@@ -1,6 +1,7 @@
 {-# LANGUAGE
     DeriveDataTypeable
   , FlexibleContexts
+  , FlexibleInstances
   , GeneralizedNewtypeDeriving
   , TypeSynonymInstances
   , ViewPatterns #-}
@@ -15,6 +16,7 @@ import Control.Monad.Error
 import Control.Monad.Reader
 
 import Data.Maybe
+import Data.Monoid
 import Data.Typeable
 
 import Language.Glyph.HM.Syntax
@@ -26,13 +28,13 @@ import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Location
 import Language.Glyph.Logger
 import Language.Glyph.Message
-import Language.Glyph.Monoid
 import Language.Glyph.Type
 import qualified Language.Glyph.Type as Type
+import Language.Glyph.Unique
 
 inferType :: ( HasLocation a
-            , MonadIdentSupply m
             , MonadLogger Message m
+            , UniqueMonad m
             ) => Exp a -> m (Substitution, Type)
 inferType = inferExp mempty
 
@@ -67,15 +69,15 @@ instance Error TypeException where
 instance Exception TypeException
 
 inferExp :: ( HasLocation a
-           , MonadIdentSupply m
            , MonadLogger Message m
+           , UniqueMonad m
            ) => TypeEnvironment -> Exp a -> m (Substitution, Type)
 inferExp = go
   where
     go gamma e =
       runReaderT (w gamma (view e)) (location e)
     w gamma (VarE x) = do
-      let sigma = gamma!x
+      let sigma = gamma ! x
       tau <- instantiate sigma
       return (mempty, tau)
     w gamma (AbsE p e) = do
@@ -97,14 +99,8 @@ inferExp = go
         return (x, sigma)
       (s2, tau2) <- inferExp ((s1' $$ deletePat p gamma) <> fromList gamma'') e2
       return (s2 $. s1' $| typeVars gamma, s2 $$ tau2)
-    w _gamma (BoolE _) =
-      return (mempty, Bool)
-    w _gamma VoidE =
-      return (mempty, Void)
-    w _gamma (IntE _) =
-      return (mempty, Int)
-    w _gamma (DoubleE _) =
-      return (mempty, Double)
+    w gamma (LitE lit) =
+      inferLit gamma lit
     w gamma (TupleE es) =
       tuple gamma es
     w _gamma Undefined = do
@@ -139,9 +135,19 @@ inferExp = go
         return (x, beta)
       return (gamma, Tuple $ map snd gamma)
 
+inferLit :: Monad m => TypeEnvironment -> Lit -> m (Substitution, Type)
+inferLit _gamma x =
+  return
+  (mempty,
+   case x of
+     IntL _ -> Int
+     DoubleL _ -> Double
+     BoolL _ -> Bool
+     VoidL -> Void)
+
 tuple :: ( HasLocation a
-        , MonadIdentSupply m
         , MonadLogger Message m
+        , UniqueMonad m
         ) => TypeEnvironment -> [Exp a] -> m (Substitution, Type)
 tuple gamma es = do
   (s, reverse -> taus) <- go (reverse es)
@@ -149,15 +155,15 @@ tuple gamma es = do
   where
     go [] =
       return (mempty, [])
-    go (x:xs) = do
+    go (x : xs) = do
       (s1, taus) <- go xs
       (s2, tau) <- inferExp (s1 $$ gamma) x
-      return (s2 $. s1, tau:taus)
+      return (s2 $. s1, tau : taus)
 
-fresh :: MonadIdentSupply m => m Type
-fresh = liftM Type.Var newIdent
+fresh :: UniqueMonad m => m Type
+fresh = liftM Type.Var freshIdent
 
-instantiate :: MonadIdentSupply m => TypeScheme -> m Type
+instantiate :: UniqueMonad m => TypeScheme -> m Type
 instantiate (Forall alphas tau) = do
   (mconcat -> s) <- forM alphas $ \ alpha -> do
     beta <- fresh
@@ -180,7 +186,7 @@ deleteList x gamma = foldr delete gamma x
 Substitution s $\ tau = Substitution $ deleteList alpha s
   where
     alpha = IdentSet.toList $ typeVars tau
-infixl 4 $\
+infixl 4 $\ --
 
 ($|) :: Substitution -> IdentSet -> Substitution
 Substitution s $| xs = Substitution $ intersection s xs'
@@ -217,14 +223,14 @@ normalize = go
       where
         c = mempty
         psi = phi
-    
+
     getD = gets $ \ (d, _, _) -> d
     putD d = modify $ \ (_, c, psi) -> (d, c, psi)
     modifyD f = modify $ \ (d, c, psi) -> (f d, c, psi)
     getC = gets $ \ (_, c, _) -> c
     getPsi = gets $ \ (_, _, psi) -> psi
     modifyPsi f = modify $ \ (d, c, psi) -> (d, c, f psi)
-    
+
     normalize' = do
       whileJust_ (liftM uncons getD) $ \ (p, d) -> do
         putD d

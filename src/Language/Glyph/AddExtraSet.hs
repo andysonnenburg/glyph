@@ -3,6 +3,7 @@ module Language.Glyph.AddExtraSet
        ) where
 
 import Data.Graph hiding (scc, vertices)
+import Data.Monoid
 
 import Language.Glyph.Annotation.CallSet hiding (callSet)
 import qualified Language.Glyph.Annotation.CallSet as Annotation
@@ -10,7 +11,6 @@ import Language.Glyph.Annotation.ExtraSet hiding (extraSet)
 import Language.Glyph.Annotation.FreeVars hiding (freeVars)
 import qualified Language.Glyph.Annotation.FreeVars as Annotation
 import Language.Glyph.Annotation.Sort
-import Language.Glyph.Monoid
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!), intersectionWith')
 import qualified Language.Glyph.IdentMap as IdentMap
@@ -28,9 +28,9 @@ addExtraSet (stmts, symtab) =
     symtab' = foldl f mempty . map (mergeSCC . flattenSCC) $ scc
       where
         f extraSets (freeVars, xs, callSet) =
-          mconcat (extraSets:map (flip IdentMap.singleton extraSet) xs)
+          mconcat (extraSets : map (flip IdentMap.singleton extraSet) xs)
             where
-              extraSet = freeVars <> mconcat (map (extraSets!) callSet)
+              extraSet = freeVars <> mconcat (map (extraSets !) callSet)
     scc = stronglyConnCompR callGraph
     callGraph = map f . filter p . IdentMap.toList $ symtab
       where
@@ -44,10 +44,10 @@ mergeSCC :: [(IdentSet, Ident, [Ident])] -> (IdentSet, [Ident], [Ident])
 mergeSCC vertices =
   (freeVars, xs, IdentSet.toList $ callSet \\ IdentSet.fromList xs)
   where
-    (freeVars, xs, callSet) = foldr mergeVertex (mempty, mempty, mempty) vertices
+    (freeVars, xs, callSet) = foldr mergeVertex mempty vertices
 
 mergeVertex :: (IdentSet, Ident, [Ident]) ->
               (IdentSet, [Ident], IdentSet) ->
               (IdentSet, [Ident], IdentSet)
 mergeVertex (freeVars, x, callSet) (freeVars', xs, callSet') =
-  (freeVars <> freeVars', x:xs, IdentSet.fromList callSet <> callSet')
+  (freeVars <> freeVars', x : xs, IdentSet.fromList callSet <> callSet')

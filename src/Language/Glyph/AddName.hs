@@ -6,12 +6,12 @@ module Language.Glyph.AddName
 import Control.Applicative
 
 import Data.Generics
+import Data.Monoid
 
 import Language.Glyph.Annotation.Location
 import Language.Glyph.Annotation.Name
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
-import Language.Glyph.Monoid
 import Language.Glyph.Syntax hiding (Name)
 
 addName :: ( Data a

@@ -18,7 +18,7 @@ import Language.Glyph.Logger
 import Language.Glyph.Message
 import Language.Glyph.Syntax
 
-checkBreak :: forall a b m.
+checkBreak :: forall a b m .
              ( Data a
              , HasLocation a
              , MonadLogger Message m
@@ -28,14 +28,14 @@ checkBreak (stmts, symtab) = do
   return (stmts, symtab)
   where
     checkBreak' = runReaderT' . query
-    
+
     query :: Data c => c -> ReaderT Bool m ()
     query = everythingBut (>>)
             ((return (), False) `mkQ`
              queryStmt `extQ`
              queryStmtView `extQ`
              queryExprView)
-    
+
     queryStmt :: Stmt a -> (ReaderT Bool m (), Bool)
     queryStmt x@(view -> BreakS) = (m, True)
       where
@@ -44,7 +44,7 @@ checkBreak (stmts, symtab) = do
           when illegalBreak $
             runReaderT (logError IllegalBreak) (location x)
     queryStmt _ = (return (), False)
-    
+
     queryStmtView :: StmtView a -> (ReaderT Bool m (), Bool)
     queryStmtView (FunDeclS _ _ stmt) =
       (local (const True) $ query stmt, True)
@@ -60,13 +60,13 @@ checkBreak (stmts, symtab) = do
           local (const True) $ query stmt2
     queryStmtView _ =
       (return (), False)
-    
+
     queryExprView :: ExprView a -> (ReaderT Bool m (), Bool)
     queryExprView (FunE _ _ stmt) =
       (local (const True) $ query stmt, True)
     queryExprView _ =
       (return (), False)
-    
+
     runReaderT' = flip runReaderT True
 
 data CheckBreakException

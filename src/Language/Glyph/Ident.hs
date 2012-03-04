@@ -1,10 +1,6 @@
 module Language.Glyph.Ident
        ( Ident
-       , MonadIdentSupply (..)
-       , IdentSupply
-       , runIdentSupply
-       , IdentSupplyT
-       , runIdentSupplyT
+       , freshIdent
        ) where
 
 import Language.Glyph.Ident.Internal

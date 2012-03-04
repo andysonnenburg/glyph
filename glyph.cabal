@@ -23,6 +23,8 @@ executable glyph
     semigroups,
     syb,
     template-haskell,
-    text
-  build-tools: alex, happy
+    text,
+    hoopl,
+    wl-pprint-extras
+  build-tools: alex >= 3, happy
   ghc-options: -Wall

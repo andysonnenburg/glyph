@@ -1,5 +1,5 @@
 name: glyph
-build-type: Simple
+build-type: Custom
 version: 0.1
 cabal-version: >= 1.2
 

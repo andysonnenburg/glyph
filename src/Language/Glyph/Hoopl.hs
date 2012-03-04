@@ -34,29 +34,30 @@ foldGraphNodesR f = flip graph
     body :: Body n -> b -> b
     body bdy a = mapFold block a bdy
     lift _ NothingO = id
-    lift f (JustO thing) = f thing
+    lift f' (JustO thing) = f' thing
 
     block :: Block n e x -> IndexedCO x b b -> IndexedCO e b b
     block = foldBlockNodesB f
 
 gSplice :: forall n e a x . NonLocal n => (Graph n e a -> Graph n a x -> Graph n e x)
-gSplice = sp
-  where sp :: forall e a x . Graph n e a -> Graph n a x -> Graph n e x
+gSplice = go
+  where
+    go :: Graph n e a -> Graph n a x -> Graph n e x
 
-        sp GNil g2 = g2
-        sp g1 GNil = g1
+    go GNil g2 = g2
+    go g1 GNil = g1
 
-        sp g1@(GUnit _) g2@(GUnit _) = g1 <*> g2
+    go g1@(GUnit _) g2@(GUnit _) = g1 <*> g2
 
-        sp g1@(GUnit _) g2@(GMany (JustO _) _ _) = g1 <*> g2
+    go g1@(GUnit _) g2@(GMany (JustO _) _ _) = g1 <*> g2
 
-        sp g1@(GMany _ _ (JustO _)) g2@(GUnit _) = g1 <*> g2
+    go g1@(GMany _ _ (JustO _)) g2@(GUnit _) = g1 <*> g2
 
-        sp g1@(GMany _ _ (JustO _)) g2@(GMany (JustO _) _ _) = g1 <*> g2
+    go g1@(GMany _ _ (JustO _)) g2@(GMany (JustO _) _ _) = g1 <*> g2
 
-        sp g1@(GMany _ _ NothingO) g2@(GMany NothingO _ _) = g1 |*><*| g2
+    go g1@(GMany _ _ NothingO) g2@(GMany NothingO _ _) = g1 |*><*| g2
 
-        sp _ _ = error "bogus GADT match failure"
+    go _ _ = error "bogus GADT match failure"
 
 
 data WrappedSemigroupoid k a b where

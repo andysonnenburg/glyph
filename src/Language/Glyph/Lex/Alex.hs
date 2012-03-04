@@ -44,8 +44,7 @@ fromLazyByteString =
   where
     fromLeft e = do
       S {..} <- get
-      let l = Location position position
-      throwError $ UnicodeError l e
+      throwError $ UnicodeError (Location position position) e
     fromRight =
       return
 

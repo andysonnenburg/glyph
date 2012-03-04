@@ -3,14 +3,12 @@
   , FlexibleContexts
   , FlexibleInstances
   , FunctionalDependencies
-  , GADTs
   , MultiParamTypeClasses
   , NamedFieldPuns
   , RankNTypes
   , RebindableSyntax
-  , ScopedTypeVariables
-  , TypeSynonymInstances
-  , UndecidableInstances #-}
+  , ScopedTypeVariables #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 module Language.Glyph.IR.FromStmts
        ( ContFlowException (..)
        , fromStmts
@@ -203,7 +201,7 @@ tellStmt = tellStmt'
     localCatch catchStmt m = do
       (nextLabel, catchLabel) <- freshLabels
       local (\ r -> r { maybeCatchLabel = Just catchLabel }) $ do
-        m
+        _ <- m
         tellInsn $ GotoS nextLabel
       x <- freshIdent
       tellInsn $ Catch x catchLabel

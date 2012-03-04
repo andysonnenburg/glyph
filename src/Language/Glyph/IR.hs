@@ -7,8 +7,8 @@ module Language.Glyph.IR
 import Compiler.Hoopl
 
 import Language.Glyph.IR.FromStmts as X
-import Language.Glyph.IR.ToHM as X
 import Language.Glyph.IR.Syntax as X
+import Language.Glyph.IR.ToHM as X
 import Language.Glyph.Syntax as X hiding (Stmt,
                                           StmtView (..),
                                           Expr,

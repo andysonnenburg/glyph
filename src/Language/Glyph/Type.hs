@@ -61,7 +61,7 @@ showTypes = go
           return $ "(" ++ intercalate ", " xs' ++ ")"
         Cont a -> do
           a' <- showTypeM a
-          return $ "Cont#" ++ a'
+          return $ "Cont# " ++ a'
     showVarM x = do
       (a, m) <- get
       case IdentMap.lookup x m of

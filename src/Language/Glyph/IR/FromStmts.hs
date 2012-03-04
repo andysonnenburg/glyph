@@ -183,11 +183,11 @@ tellStmt = tellStmt'
         f r@R { finally } =
           r { finally = finally' }
           where
-            finally' :: forall m .
-                        ( MonadError ContFlowException m
-                        , MonadReader (R a) m
-                        , UniqueMonad m
-                        ) => Finally (WriterT (W a) m) 
+            finally' :: forall m' .
+                        ( MonadError ContFlowException m'
+                        , MonadReader (R a) m'
+                        , UniqueMonad m'
+                        ) => Finally (WriterT (W a) m') 
             finally' =
               Finally { tellBeforeLoopExit = do
                            tellFinally

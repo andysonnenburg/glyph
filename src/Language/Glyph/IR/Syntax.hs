@@ -1,4 +1,8 @@
-{-# LANGUAGE GADTs, ScopedTypeVariables #-}
+{-# LANGUAGE
+    DeriveDataTypeable
+  , GADTs
+  , ScopedTypeVariables
+  , StandaloneDeriving #-}
 module Language.Glyph.IR.Syntax
        ( module X
        , Insn (..)
@@ -11,6 +15,7 @@ module Language.Glyph.IR.Syntax
 
 import Compiler.Hoopl
 
+import Data.Data
 import Data.Foldable (Foldable, toList)
 import Data.Maybe
 
@@ -34,6 +39,8 @@ data Insn a e x where
 instance Show (Insn a e x) where
   show = show . pretty
 
+deriving instance Typeable3 Insn
+
 data Stmt a x where
   ExprS :: ExprIdent -> MaybeC x (Label, Label) -> Stmt a x
   VarDeclS :: Name -> Stmt a O
@@ -43,6 +50,8 @@ data Stmt a x where
   IfS :: ExprIdent -> Label -> Label -> Successor -> Stmt a C
   ThrowS :: ExprIdent -> Successor -> Stmt a C
 
+deriving instance Typeable2 Stmt
+
 data Expr a where
   LitE :: Lit -> Expr a
   NotE :: ExprIdent -> Expr a
@@ -50,6 +59,8 @@ data Expr a where
   FunE :: Ident -> [Name] -> Graph (Insn a) O C -> Expr a
   ApplyE :: ExprIdent -> [ExprIdent] -> Expr a
   AssignE :: Name -> ExprIdent -> Expr a
+
+deriving instance Typeable1 Expr
 
 type ExprIdent = Ident
 

@@ -65,9 +65,11 @@ glyph' =
    addName >=>
    checkVar >=>
    (\ (stmts, _symtab) -> do
-     graph <- fromStmts' stmts
-     -- inferType $ toHM graph
-     liftIO $ putStrLn $ showGraph' graph
+     ir <- fromStmts' stmts
+     hm <- toHM ir
+     liftIO $ print hm
+     (_, typ) <- inferType hm
+     liftIO $ print typ
      return ()))
   where
     mkSymtab stmts = return (stmts, ())

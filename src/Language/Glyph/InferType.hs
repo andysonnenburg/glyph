@@ -211,7 +211,7 @@ blockToExp stmts =
         queryStmt :: Stmt a -> m [(m (HM.Exp a), Ident, [Ident])]
         queryStmt stmt'@(view -> FunDeclS (ident -> x) params stmts') = do
           symtab <- askSymtab
-          return [(local' r e, x, IdentSet.toList . callSet $ symtab !x)]
+          return [(local' r e, x, IdentSet.toList . callSet $ symtab ! x)]
           where
             r = extract stmt'
             e = funToExp params stmts'

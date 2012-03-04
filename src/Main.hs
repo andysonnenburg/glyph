@@ -64,9 +64,10 @@ glyph' =
    addExtraSet >=>
    addName >=>
    checkVar >=>
-   (\ (stmts, _symtab) -> do
+   (\ (stmts, symtab) -> do
      ir <- fromStmts' stmts
-     hm <- toHM ir
+     liftIO $ putStrLn $ showGraph' ir
+     hm <- toHM ir symtab
      liftIO $ print hm
      (_, typ) <- inferType hm
      liftIO $ print typ

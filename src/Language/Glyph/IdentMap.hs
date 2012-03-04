@@ -130,4 +130,4 @@ unionWith f (IdentMap t1) (IdentMap t2) = IdentMap $ IntMap.unionWith f t1 t2
 
 intersectionWith' :: (a -> b -> c) -> b -> IdentMap a -> IdentMap b -> IdentMap c
 intersectionWith' f a m1 m2 =
-  intersectionWith f m1 m2 `union` fmap (flip f a) m1
+  intersectionWith f m1 m2 `union` fmap (`f` a) m1

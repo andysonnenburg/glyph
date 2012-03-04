@@ -59,7 +59,7 @@ instance (Category w, Monad m) => Monad (WriterT w m ex ex) where
   (>>) = (Hoopl.>>)
   return = Hoopl.return
   fail = Hoopl.fail
-  
+
 lift :: (Category w, Monad m) => m a -> WriterT w m ex ex a
 lift m = WriterT $ do
   a <- m

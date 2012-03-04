@@ -3,6 +3,7 @@
   , GeneralizedNewtypeDeriving
   , MultiParamTypeClasses
   , UndecidableInstances #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Glyph.Unique
        ( Unique
        , UniqueMonad (..)

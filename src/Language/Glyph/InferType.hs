@@ -174,8 +174,8 @@ blockToExp stmts =
   local' (mconcat (map extract stmts)) .
   varDecls . funs . stmtsToExp $ stmts
   where
-    varDecls e2 =
-      everythingThisScope (.) (id `mkQ` queryStmt) stmts e2
+    varDecls =
+      everythingThisScope (.) (id `mkQ` queryStmt) stmts
       where
         queryStmt stmt@(view -> VarDeclS (ident -> x) _expr) =
           local' (extract stmt) . f

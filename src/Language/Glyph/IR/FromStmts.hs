@@ -53,9 +53,9 @@ fromFun params stmts = do
   where
     (>>=) = (Monad.>>=)
     return = Monad.return
-    
+
     runReaderT' = flip runReaderT
-    
+
     r = R { annotation = Monoid.mconcat $ map extract stmts
           , finally = initFinally
           , maybeCatchLabel = Nothing
@@ -185,7 +185,7 @@ tellStmt = tellStmt'
                         ( MonadError ContFlowException m'
                         , MonadReader (R a) m'
                         , UniqueMonad m'
-                        ) => Finally (WriterT (W a) m') 
+                        ) => Finally (WriterT (W a) m')
             finally' =
               Finally { tellBeforeLoopExit = do
                            tellFinally
@@ -197,7 +197,7 @@ tellStmt = tellStmt'
               where
                 tellFinally =
                   local (const r) $ tellStmt finallyStmt
-    
+
     localCatch catchStmt m = do
       (nextLabel, catchLabel) <- freshLabels
       local (\ r -> r { maybeCatchLabel = Just catchLabel }) $ do

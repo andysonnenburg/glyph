@@ -70,7 +70,7 @@ instance Semigroupoid k => Category (WrappedSemigroupoid k) where
   f . Id = f
   Semi g . Semi f = Semi $ g `o` f
 
-unwrapSemigroupoid :: k ex ex -> WrappedSemigroupoid k ex ex -> k ex ex
+unwrapSemigroupoid :: k e x -> WrappedSemigroupoid k e x -> k e x
 unwrapSemigroupoid f = unwrap
   where
     unwrap Id = f

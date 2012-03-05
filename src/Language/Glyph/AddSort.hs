@@ -19,7 +19,7 @@ import Language.Glyph.Syntax
 
 addSort :: ( Data a
           , Monad m
-          ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap (Annotated Sort b))
+          ) => ([Stmt a], IdentMap sym) -> m ([Stmt a], IdentMap (Annotated Sort sym))
 addSort (stmts, symtab) = do
   let symtab' = sort' stmts
   return (stmts,

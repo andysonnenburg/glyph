@@ -18,7 +18,7 @@ import Data.Monoid
 import Language.Glyph.Hoopl
 import Language.Glyph.HM.Syntax (Exp, Pat, tupleP, varP)
 import qualified Language.Glyph.HM.Syntax as HM
-                                 
+
 import Language.Glyph.Annotation.CallSet
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
@@ -67,7 +67,7 @@ insnsToExp :: ( HasCallSet sym
               , UniqueMonad m
               ) => [SomeInsn a] -> T a sym m (Exp a)
 insnsToExp insns = vars (funs (mapM_' go insns))
-  where    
+  where
     go (Stmt a stmt) =
       localA a (stmtToExp stmt)
     go (Expr a x expr _) =
@@ -79,7 +79,7 @@ insnsToExp insns = vars (funs (mapM_' go insns))
     go ReturnVoid = do
       cc <- askCC
       appE (varE cc) (litE VoidL)
-    
+
     vars = concatMap' var insns
       where
         concatMap' f =
@@ -94,7 +94,7 @@ insnsToExp insns = vars (funs (mapM_' go insns))
             f x e = do
               a <- askA
               appE (absE (varP x) (localA a e)) undefined'
-    
+
     funs =
       foldr' let' .
       map (toLet . flattenSCC) .
@@ -214,7 +214,7 @@ return' = liftR1 HM.return'
 then' :: Monad m => T a sym m (Exp a) -> T a sym m (Exp a) -> T a sym m (Exp a)
 then' = liftR2 HM.then'
 
-runCont :: Monad m => T a sym m (Exp a) ->  T a sym m (Exp a)
+runCont :: Monad m => T a sym m (Exp a) -> T a sym m (Exp a)
 runCont = liftR1 HM.runCont
 
 callCC :: Monad m => T a sym m (Exp a) -> T a sym m (Exp a)

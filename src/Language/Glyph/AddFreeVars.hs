@@ -19,31 +19,31 @@ import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Syntax
 
 addFreeVars :: ( Data a
-              , HasSort b
+              , HasSort sym
               , Monad m
               ) =>
-              ([Stmt a], IdentMap b) ->
-              m ([Stmt a], IdentMap (Annotated FreeVars b))
+              ([Stmt a], IdentMap sym) ->
+              m ([Stmt a], IdentMap (Annotated FreeVars sym))
 addFreeVars (stmts, symtab) =
   return (stmts, intersectionWith' (flip withFreeVars) mempty symtab symtab')
   where
     symtab' = freeVarsQ symtab stmts
 
-freeVarsQ :: forall a b .
-            ( HasSort a
-            , Data b
-            ) => IdentMap a -> [Stmt b] -> IdentMap IdentSet
+freeVarsQ :: forall a sym .
+            ( Data a
+            , HasSort sym
+            ) => IdentMap sym -> [Stmt a] -> IdentMap IdentSet
 freeVarsQ symtab =
   everythingButFuns (<>)
   (mempty `mkQ` queryStmt `extQ` queryExpr)
   where
-    queryStmt :: StmtView b -> IdentMap IdentSet
+    queryStmt :: StmtView a -> IdentMap IdentSet
     queryStmt (FunDeclS (ident -> x) params stmts) =
       queryFun x params stmts
     queryStmt _ =
       mempty
 
-    queryExpr :: ExprView b -> IdentMap IdentSet
+    queryExpr :: ExprView a -> IdentMap IdentSet
     queryExpr (FunE x params stmts) =
       queryFun x params stmts
     queryExpr _ =
@@ -74,12 +74,12 @@ varDeclsQ =
     queryStmt _ =
       mempty
 
-varsQ :: (HasSort a, Data b) => IdentMap a -> b -> IdentSet
+varsQ :: (Data a, HasSort sym) => IdentMap sym -> a -> IdentSet
 varsQ symtab =
   everythingButFuns (<>)
   (mempty `mkQ` queryExpr)
   where
-    queryExpr x | Var <- sort (symtab !x) =
+    queryExpr x | Var <- sort (symtab ! x) =
       IdentSet.singleton x
     queryExpr _ =
       mempty

@@ -19,12 +19,17 @@ import Language.Glyph.Unique
 import Language.Haskell.TH.Syntax (showName)
 import qualified Language.Haskell.TH as TH
 
+import Text.PrettyPrint.Free
+
 newtype Ident
   = Ident { unIdent :: Unique
           } deriving (Eq, Ord, Typeable)
 
+instance Pretty Ident where
+  pretty = text . ('$' :) . show . unIdent
+
 instance Show Ident where
-  show = ('$' :) . show . unIdent
+  show = show . pretty
 
 instance Data Ident where
   gfoldl _f z = z

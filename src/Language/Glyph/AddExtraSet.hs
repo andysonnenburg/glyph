@@ -17,11 +17,11 @@ import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.IdentSet
 import qualified Language.Glyph.IdentSet as IdentSet
 
-addExtraSet :: ( HasSort b
-              , HasFreeVars b
-              , HasCallSet b
+addExtraSet :: ( HasSort sym
+              , HasFreeVars sym
+              , HasCallSet sym
               , Monad m
-              ) => (a, IdentMap b) -> m (a, IdentMap (Annotated ExtraSet b))
+              ) => (a, IdentMap sym) -> m (a, IdentMap (Annotated ExtraSet sym))
 addExtraSet (stmts, symtab) =
   return (stmts, intersectionWith' (flip withExtraSet) mempty symtab symtab')
   where
@@ -34,11 +34,11 @@ addExtraSet (stmts, symtab) =
     scc = stronglyConnCompR callGraph
     callGraph = map f . filter p . IdentMap.toList $ symtab
       where
-        p (_, info) = sort info == Fun
-        f (x, info) = (freeVars, x, callSet)
+        p (_, sym) = sort sym == Fun
+        f (x, sym) = (freeVars, x, callSet)
           where
-            freeVars = Annotation.freeVars info
-            callSet = IdentSet.toList $ Annotation.callSet info
+            freeVars = Annotation.freeVars sym
+            callSet = IdentSet.toList $ Annotation.callSet sym
 
 mergeSCC :: [(IdentSet, Ident, [Ident])] -> (IdentSet, [Ident], [Ident])
 mergeSCC vertices =

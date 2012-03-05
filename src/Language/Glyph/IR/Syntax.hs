@@ -79,14 +79,14 @@ instance Pretty (Insn a e x) where
       go (Stmt _ x) =
         pretty x
       go (Expr _ x expr successors') =
-        text "let" <+> prettyIdent x <+> char '=' <+> pretty expr
+        text "let" <+> pretty x <+> char '=' <+> pretty expr
         `prettySuccessors`
         successors'
       go (Label label) =
         prettyLabel label <> colon
       go (Catch x label) =
         prettyLabel label <> colon <+>
-        text "catch" <+> parens (prettyIdent x) <> semi
+        text "catch" <+> parens (pretty x) <> semi
       go ReturnVoid =
         text "return" <+> pretty VoidL <> semi
 
@@ -95,7 +95,7 @@ instance Pretty (Stmt a x) where
     where
       go :: Stmt a x -> Doc e
       go (ExprS expr successors') =
-        prettyIdent expr
+        pretty expr
         `prettySuccessors`
         successors'
       go (VarDeclS name) =
@@ -105,7 +105,7 @@ instance Pretty (Stmt a x) where
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>
         rbrace
       go (ReturnS expr successor) =
-        text "return" <+> prettyIdent expr
+        text "return" <+> pretty expr
         `prettySuccessor`
         successor
       go (GotoS label successor) =
@@ -113,13 +113,13 @@ instance Pretty (Stmt a x) where
         `prettySuccessor`
         successor
       go (IfS expr then' else' successor) =
-        text "if" <+> parens (prettyIdent expr) <+>
+        text "if" <+> parens (pretty expr) <+>
         prettyLabel then' <+>
         prettyLabel else'
         `prettySuccessor`
         successor
       go (ThrowS expr successor) =
-        text "throw" <+> prettyIdent expr
+        text "throw" <+> pretty expr
         `prettySuccessor`
         successor
 
@@ -133,7 +133,7 @@ instance Pretty (Expr a) where
       go (LitE lit) =
         pretty lit
       go (NotE x) =
-        char '!' <> prettyIdent x
+        char '!' <> pretty x
       go (VarE name) =
         pretty name
       go (FunE _ params graph) =
@@ -141,9 +141,9 @@ instance Pretty (Expr a) where
         (enclose linebreak linebreak . indent 2 . prettyGraph $ graph) <>
         rbrace
       go (ApplyE expr exprs) =
-        prettyIdent expr <> tupled (map prettyIdent exprs)
+        pretty expr <> tupled (map pretty exprs)
       go (AssignE name x) =
-        pretty name <+> char '=' <+> prettyIdent x
+        pretty name <+> char '=' <+> pretty x
 
 prettySuccessors :: Doc e -> MaybeC x (Label, Label) -> Doc e
 prettySuccessors = go
@@ -161,9 +161,6 @@ prettySuccessor = go
       doc <+> text "unwind" <+> prettyLabel catchLabel <> semi
     go doc Nothing =
       doc <> semi
-
-prettyIdent :: Ident -> Doc e
-prettyIdent = text . show
 
 prettyLabel :: Label -> Doc e
 prettyLabel = text . show
@@ -184,7 +181,7 @@ instance NonLocal (Insn a) where
       go :: Insn a C x -> Label
       go (Label label) = label
       go (Catch _ label) = label
-  
+
   successors = stmtSuccessors
     where
       stmtSuccessors = go
@@ -209,4 +206,3 @@ instance NonLocal (Insn a) where
             [thenLabel, elseLabel] ++ maybeToList successor
           go (ThrowS _ maybeCatchLabel') =
             maybeToList maybeCatchLabel'
-

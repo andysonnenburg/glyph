@@ -1,4 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, ScopedTypeVariables, ViewPatterns #-}
+{-# LANGUAGE
+    DeriveDataTypeable
+  , RecordWildCards
+  , ScopedTypeVariables
+  , ViewPatterns #-}
+{-# OPTIONS_GHC -fno-cse #-}
 module Main (main) where
 
 import Control.Monad.Error hiding (ErrorT (..))
@@ -18,7 +23,6 @@ import Language.Glyph.CheckFun
 import Language.Glyph.CheckReturn
 import Language.Glyph.CheckVar
 import Language.Glyph.Error
-import Language.Glyph.HM.InferType
 import Language.Glyph.IR (fromStmts, showGraph', toHM)
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
@@ -28,26 +32,30 @@ import Language.Glyph.Rename
 import Language.Glyph.Syntax
 import Language.Glyph.Unique
 
-import System.Console.CmdArgs hiding (args, name)
+import System.Console.CmdArgs hiding (args)
 import System.Environment
 import System.IO
 
 import Prelude hiding (catch, lex)
 
 data Glyph
-  = Glyph {} deriving (Typeable, Data)
+  = Glyph { dumpIR :: Bool
+          , dumpHM :: Bool
+          } deriving (Typeable, Data)
 
-glyph :: String -> Glyph
-glyph progName = modes [Glyph {} &= auto] &= program progName
+glyphCmdArgs :: String -> Glyph
+glyphCmdArgs progName = modes [Glyph { dumpIR = def &= explicit &= name "dump-ir"
+                                     , dumpHM = def &= explicit &= name "dump-hm"
+                                     } &= auto] &= program progName
 
 main :: IO ()
 main = do
   progName <- getProgName
-  Glyph {} <- cmdArgs (glyph progName)
-  glyph'
+  args <- cmdArgs (glyphCmdArgs progName)
+  glyph args
 
-glyph' :: IO ()
-glyph' =
+glyph :: Glyph -> IO ()
+glyph Glyph {..} =
   ByteString.getContents >>=
   runLoggerT . runUniqueSupplyT .
   (runErrorT . parse >=>
@@ -66,11 +74,11 @@ glyph' =
    checkVar >=>
    (\ (stmts, symtab) -> do
      ir <- fromStmts' stmts
-     liftIO $ putStrLn $ showGraph' ir
+     when dumpIR $
+       liftIO $ putStrLn $ showGraph' ir
      hm <- toHM ir symtab
-     liftIO $ print hm
-     (_, typ) <- inferType hm
-     liftIO $ print typ
+     when dumpHM $
+       liftIO $ print hm
      return ()))
   where
     mkSymtab stmts = return (stmts, ())

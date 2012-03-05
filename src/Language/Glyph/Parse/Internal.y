@@ -41,6 +41,7 @@ NAME { (extract -> Name _) }
 '}' { (extract -> RightBrace) }
 ';' { (extract -> Semicolon) }
 ':' { (extract -> Colon) }
+INT { (extract -> Int _) }
 TRUE { (extract -> Token.True) }
 FALSE { (extract -> Token.False) }
 VOID { (extract -> Token.Void) }

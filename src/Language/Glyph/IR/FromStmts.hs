@@ -173,7 +173,7 @@ tellStmt = tellStmt'
       localFinally stmt2 $ tellStmt stmt1
     go (Glyph.BlockS stmts) =
       mapM_ tellStmt stmts
-    
+
     localFinally finallyStmt m = do
       local f $ localCatch finallyStmt m
       tellStmt finallyStmt

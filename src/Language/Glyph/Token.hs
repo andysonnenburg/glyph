@@ -2,7 +2,6 @@ module Language.Glyph.Token
        ( Token (..)
        ) where
 
-import Data.Int
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -20,6 +19,7 @@ data Token
   | RightBrace
   | Colon
   | Semicolon
+  | Int Integer
   | True
   | False
   | Void
@@ -50,6 +50,7 @@ instance Show Token where
       RightBrace -> "}"
       Colon -> ":"
       Semicolon -> ";"
+      Int a -> show a
       True -> "true"
       False -> "false"
       Void -> "void"

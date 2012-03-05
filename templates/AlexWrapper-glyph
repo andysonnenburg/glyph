@@ -1,7 +1,8 @@
-type Action m = Location ->
-                ByteString ->
-                Int ->
-                ParserT m (Annotated Location Token) 
+type Action m
+  = Location ->
+    ByteString ->
+    Int ->
+    ParserT m (Annotated Location Token) 
 
 lex :: MonadError ParseException m => ParserT m (Annotated Location Token)
 lex = do

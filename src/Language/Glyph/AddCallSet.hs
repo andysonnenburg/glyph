@@ -19,31 +19,31 @@ import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Syntax
 
 addCallSet :: ( Data a
-             , HasSort b
+             , HasSort sym
              , Monad m
              ) =>
-             ([Stmt a], IdentMap b) ->
-             m ([Stmt a], IdentMap (Annotated CallSet b))
+             ([Stmt a], IdentMap sym) ->
+             m ([Stmt a], IdentMap (Annotated CallSet sym))
 addCallSet (stmts, symtab) =
   return (stmts, intersectionWith' (flip withCallSet) mempty symtab symtab')
   where
     symtab' = callSetsQ symtab stmts
 
-callSetsQ :: forall a b .
-             ( HasSort a
-             , Data b
-             ) => IdentMap a -> [Stmt b] -> IdentMap IdentSet
+callSetsQ :: forall a sym .
+             ( Data a
+             , HasSort sym
+             ) => IdentMap sym -> [Stmt a] -> IdentMap IdentSet
 callSetsQ symtab =
   everythingButFuns (<>)
   (mempty `mkQ` queryStmt `extQ` queryExpr)
   where
-    queryStmt :: StmtView b -> IdentMap IdentSet
+    queryStmt :: StmtView a -> IdentMap IdentSet
     queryStmt (FunDeclS (ident -> x) _ stmts) =
       queryFun x stmts
     queryStmt _ =
       mempty
 
-    queryExpr :: ExprView b -> IdentMap IdentSet
+    queryExpr :: ExprView a -> IdentMap IdentSet
     queryExpr (FunE x _ stmts) =
       queryFun x stmts
     queryExpr _ =
@@ -79,15 +79,15 @@ nestedFunsQ =
     queryExpr _ =
       mempty
 
-funVarsQ :: forall a b .
-            ( HasSort a
-            , Data b
-            ) => IdentMap a -> [Stmt b] -> IdentSet
+funVarsQ :: forall a sym .
+            ( Data a
+            , HasSort sym
+            ) => IdentMap sym -> [Stmt a] -> IdentSet
 funVarsQ symtab =
   everythingButFuns (<>)
   (mempty `mkQ` queryExpr)
   where
-    queryExpr :: ExprView b -> IdentSet
+    queryExpr :: ExprView a -> IdentSet
     queryExpr (VarE (ident -> x)) | Fun <- sort (symtab !x) =
       IdentSet.singleton x
     queryExpr _ =

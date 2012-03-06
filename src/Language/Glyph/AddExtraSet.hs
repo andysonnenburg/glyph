@@ -1,9 +1,11 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Language.Glyph.AddExtraSet
        ( addExtraSet
        ) where
 
-import Data.Graph hiding (scc, vertices)
-import Data.Monoid
+import Control.Monad.Writer
+
+import Data.Graph hiding (Node, scc, vertices)
 
 import Language.Glyph.Annotation.CallSet hiding (callSet)
 import qualified Language.Glyph.Annotation.CallSet as Annotation
@@ -25,29 +27,43 @@ addExtraSet :: ( HasSort sym
 addExtraSet (stmts, symtab) =
   return (stmts, intersectionWith' (flip withExtraSet) mempty symtab symtab')
   where
-    symtab' = foldl f mempty . map (mergeSCC . flattenSCC) $ scc
-      where
-        f extraSets (freeVars, xs, callSet) =
-          mconcat (extraSets : map (flip IdentMap.singleton extraSet) xs)
-            where
-              extraSet = freeVars <> mconcat (map (extraSets !) callSet)
+    symtab' = execWriter . tellExtraSets . reverse $ nodes
+    nodes = map (flattenNodes . flattenSCC) scc
     scc = stronglyConnCompR callGraph
-    callGraph = map f . filter p . IdentMap.toList $ symtab
+    callGraph = map mkEdge . filter isFun . IdentMap.toList $ symtab
       where
-        p (_, sym) = sort sym == Fun
-        f (x, sym) = (freeVars, x, callSet)
+        isFun (_, sym) = sort sym == Fun
+        mkEdge (x, sym) = (freeVars, x, callSet)
           where
             freeVars = Annotation.freeVars sym
             callSet = IdentSet.toList $ Annotation.callSet sym
 
-mergeSCC :: [(IdentSet, Ident, [Ident])] -> (IdentSet, [Ident], [Ident])
-mergeSCC vertices =
-  (freeVars, xs, IdentSet.toList $ callSet \\ IdentSet.fromList xs)
-  where
-    (freeVars, xs, callSet) = foldr mergeVertex mempty vertices
+tellExtraSets :: MonadWriter (IdentMap IdentSet) m => [Node] -> m ()
+tellExtraSets [] =
+  return ()
+tellExtraSets ((freeVars, xs, callSet):nodes) = do
+  extraSets <- listen' $ tellExtraSets nodes
+  let extraSet = freeVars <> mconcat (map (extraSets !) callSet)
+  forM_ xs $ \ x ->
+    tell $ IdentMap.singleton x extraSet
 
-mergeVertex :: (IdentSet, Ident, [Ident]) ->
-              (IdentSet, [Ident], IdentSet) ->
-              (IdentSet, [Ident], IdentSet)
-mergeVertex (freeVars, x, callSet) (freeVars', xs, callSet') =
-  (freeVars <> freeVars', x : xs, IdentSet.fromList callSet <> callSet')
+type Node = (IdentSet, [Ident], [Ident])
+
+flattenNodes :: [(IdentSet, Ident, [Ident])] -> Node
+flattenNodes nodes = (freeVars, xs, callSet')
+  where
+    Node' freeVars xs callSet = mconcat . map mkNode' $ nodes
+    callSet' = IdentSet.toList $ callSet \\ IdentSet.fromList xs
+
+data Node' = Node' IdentSet [Ident] IdentSet
+
+mkNode' :: (IdentSet, Ident, [Ident]) -> Node'
+mkNode' (freeVars, x, callSet) = Node' freeVars [x] (IdentSet.fromList callSet)
+
+instance Monoid Node' where
+  mempty = Node' mempty mempty mempty
+  Node' freeVars xs callSet `mappend` Node' freeVars' xs' callSet' =
+    Node' (freeVars <> freeVars') (xs <> xs') (callSet <> callSet')
+
+listen' :: MonadWriter w m => m a -> m w
+listen' = liftM snd . listen

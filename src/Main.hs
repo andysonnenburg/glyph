@@ -23,6 +23,7 @@ import Language.Glyph.CheckFun
 import Language.Glyph.CheckReturn
 import Language.Glyph.CheckVar
 import Language.Glyph.Error
+import Language.Glyph.HM (inferType)
 import Language.Glyph.IR (fromStmts, showGraph', toHM)
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
@@ -79,6 +80,7 @@ glyph Glyph {..} =
      hm <- toHM ir symtab
      when dumpHM $
        liftIO $ print hm
+     -- _ <- inferType hm
      return ()))
   where
     mkSymtab stmts = return (stmts, ())

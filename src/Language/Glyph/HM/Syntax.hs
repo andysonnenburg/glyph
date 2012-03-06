@@ -1,4 +1,8 @@
-{-# LANGUAGE DeriveDataTypeable, DeriveFunctor, MultiParamTypeClasses #-}
+{-# LANGUAGE
+    DeriveDataTypeable
+  , DeriveFunctor
+  , MultiParamTypeClasses
+  , ViewPatterns #-}
 module Language.Glyph.HM.Syntax
        ( Exp (..)
        , ExpView (..)
@@ -25,12 +29,21 @@ import Control.Monad
 import Control.Monad.Reader
 
 import Data.Data
+import Data.Foldable (Foldable, toList)
 
 import Language.Glyph.Ident
 import Language.Glyph.Syntax (Lit (..))
 import Language.Glyph.View
 
-data Exp a = Exp a (ExpView a) deriving (Show, Typeable, Data, Functor)
+import Text.PrettyPrint.Free hiding (encloseSep, tupled)
+
+data Exp a = Exp a (ExpView a) deriving (Typeable, Data, Functor)
+
+instance Pretty (Exp a) where
+  pretty = pretty . view
+
+instance Show (Exp a) where
+  show = show . pretty
 
 data ExpView a
   = VarE Ident
@@ -48,7 +61,41 @@ data ExpView a
   | RunCont
   | Return
   | Then
-  | CallCC deriving (Show, Typeable, Data, Functor)
+  | CallCC deriving (Typeable, Data, Functor)
+
+instance Pretty (ExpView a) where
+  pretty = go
+    where
+      go (VarE x) =
+        pretty x
+      go (AbsE p e) =
+        char '\\' <> pretty p <> char '.' <+> hang 2 (pretty e)
+      go (AppE (view -> AppE (view -> Then) e1) e2) =
+        pretty e1 <+> text ">>"
+        `above`
+        pretty e2
+      go (AppE e1 e2) =
+        pretty e1 </> hang 2 (pretty e2)
+      go (LetE p e1 e2) =
+        text "let" </> pretty p </> char '=' </> pretty e1 </> text "in" </> pretty e2
+      go (LitE lit) =
+        pretty lit
+      go (TupleE x) =
+        tupled (map pretty x)
+      go Undefined =
+        text "undefined"
+      go AsTypeOf =
+        text "asTypeOf"
+      go Fix =
+        text "fix"
+      go RunCont =
+        text "runCont"
+      go Return =
+        text "return"
+      go Then =
+        text "then"
+      go CallCC =
+        text "callCC"
 
 instance View (Exp a) (ExpView a) where
   view (Exp _ x) = x
@@ -56,6 +103,12 @@ instance View (Exp a) (ExpView a) where
 data Pat
   = VarP Ident
   | TupleP [Ident] deriving (Show, Typeable, Data)
+
+instance Pretty Pat where
+  pretty = go
+    where
+      go (VarP x) = pretty x
+      go (TupleP x) = tupled (map pretty x)
 
 varE :: MonadReader a m => Ident -> m (Exp a)
 varE x = do
@@ -132,3 +185,13 @@ varP = VarP
 
 tupleP :: [Ident] -> Pat
 tupleP = TupleP
+
+tupled :: Foldable f => f (Doc e) -> Doc e
+tupled = encloseSep lparen rparen (comma <> space)
+
+encloseSep :: Foldable f => Doc e -> Doc e -> Doc e -> f (Doc e) -> Doc e
+encloseSep left right sp ds0 =
+  case toList ds0 of
+    [] -> left <> right
+    [d] -> left <> d <> right
+    ds -> left <> align (cat (zipWith (<>) (init ds) (repeat sp) ++ [last ds <> right]))

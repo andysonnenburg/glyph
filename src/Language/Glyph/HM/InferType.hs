@@ -25,15 +25,14 @@ import Language.Glyph.IdentMap
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentMap as IdentMap
 import qualified Language.Glyph.IdentSet as IdentSet
-import Language.Glyph.Location
 import Language.Glyph.Logger
-import Language.Glyph.Message
+import Language.Glyph.Msg
 import Language.Glyph.Type
 import qualified Language.Glyph.Type as Type
 import Language.Glyph.Unique
 
 inferType :: ( HasLocation a
-            , MonadLogger Message m
+            , MonadWriter Msgs m
             , UniqueMonad m
             ) => Exp a -> m (Substitution, Type)
 inferType = inferExp mempty

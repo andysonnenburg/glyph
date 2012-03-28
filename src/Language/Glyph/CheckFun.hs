@@ -2,8 +2,7 @@
     DeriveDataTypeable
   , FlexibleContexts
   , PatternGuards
-  , ScopedTypeVariables
-  , ViewPatterns #-}
+  , ScopedTypeVariables #-}
 module Language.Glyph.CheckFun
        ( CheckFunException (..)
        , checkFun
@@ -11,36 +10,42 @@ module Language.Glyph.CheckFun
 
 import Control.Exception
 import Control.Monad.Error
-import Control.Monad.Reader
+import Control.Monad.Writer hiding ((<>))
 
 import Data.Generics
 import qualified Data.Text as Text
 
-import Language.Glyph.Annotation.Sort
-import Language.Glyph.Location
-import Language.Glyph.Logger
-import Language.Glyph.Message
+import Language.Glyph.Record hiding (Sort, name)
+import qualified Language.Glyph.Record as Record
+import Language.Glyph.Sort
+import Language.Glyph.Msg
+import qualified Language.Glyph.Msg as Msg
 import Language.Glyph.IdentMap (IdentMap, (!))
 import Language.Glyph.Syntax
 
-checkFun :: forall a b m .
-           ( Data a
-           , HasLocation a
-           , HasSort b
-           , MonadLogger Message m
-           ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap b)
-checkFun (stmts, symtab) = do
-  checkFun' stmts
-  return (stmts, symtab)
+import Text.PrettyPrint.Free
+
+checkFun :: forall a fields sym m .
+            ( Data a
+            , Pretty a
+            , Select Stmts [Stmt a] fields
+            , Select Symtab (IdentMap (Record sym)) fields
+            , Select Record.Sort Sort sym
+            , MonadWriter Msgs m
+            ) => Record fields -> m ()
+checkFun r =
+  checkFun' stmts'
   where
-    checkFun' = everything (>>) (return () `mkQ` queryExpr)
+    stmts' = r#.stmts
+    symtab' = r#.symtab
+    
+    checkFun' =
+      everything (>>) (return () `mkQ` queryExpr)
 
     queryExpr :: Expr a -> m ()
-    queryExpr x@(view -> AssignE name _)
-      | Fun <- sort (symtab !ident name) =
-        runReaderT' $ logError $ AssignmentToFunDecl (view name)
-      where
-        runReaderT' m = runReaderT m (location x)
+    queryExpr (Expr a (AssignE name _))
+      | Fun <- (symtab' ! ident name)#.sort =
+        tell $ Msg.singleton $ mkErrorMsg a $ AssignmentToFunDecl $ view name
     queryExpr _ =
       return ()
 
@@ -50,12 +55,22 @@ data CheckFunException
   | NoMsgError deriving Typeable
 
 instance Show CheckFunException where
-  show x =
-    case x of
-      AssignmentToFunDecl a ->
-        "illegal assignment to fun `" ++ Text.unpack a ++ "'"
-      StrMsgError s -> s
-      NoMsgError -> "internal error"
+  show = show . pretty
+
+instance Pretty CheckFunException where
+  pretty = go
+    where
+      go (AssignmentToFunDecl a) =
+        text "illegal" </>
+        text "assignment" </>
+        text "to" </>
+        text "fn" </>
+        char '`' <> text (Text.unpack a) <> char '\''
+      go (StrMsgError s) =
+        text s
+      go NoMsgError =
+        text "internal" </>
+        text "error"
 
 instance Exception CheckFunException
 

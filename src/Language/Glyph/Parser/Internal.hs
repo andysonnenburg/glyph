@@ -26,8 +26,10 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Text.Encoding.Error
 import Data.Typeable
 
-import Language.Glyph.Annotation.Location
+import Language.Glyph.Loc
 import Language.Glyph.Unique
+
+import Text.PrettyPrint.Free
 
 newtype ParserT m a
   = ParserT { unParserT :: StateT S m a
@@ -43,7 +45,7 @@ instance MonadError ParseException m => Monad (ParserT m) where
   (ParserT m) >>= k = ParserT $ m >>= unParserT . k
   fail msg = do
     S {..} <- get
-    let l = Location position position
+    let l = Loc pos pos
     throwError $ ParseError l msg
 
 instance ( MonadError ParseException m
@@ -52,20 +54,33 @@ instance ( MonadError ParseException m
   freshUnique = lift freshUnique
 
 data ParseException
-  = ParseError Location String
-  | LexicalError Location
-  | UnicodeError Location UnicodeException
+  = ParseError Loc String
+  | LexicalError Loc
+  | UnicodeError Loc UnicodeException
   | StrMsgError String
   | NoMsgError deriving Typeable
 
 instance Show ParseException where
-  show x =
-    case x of
-      ParseError l s -> show l ++ ": parse error: " ++ s
-      LexicalError l -> show l ++ ": lexical error"
-      UnicodeError l e -> show l ++ ": unicode error: " ++ show e
-      StrMsgError s -> s
-      NoMsgError -> "internal error"
+  show = show . pretty
+
+instance Pretty ParseException where
+  pretty = go
+    where
+      go (ParseError l s) =
+        pretty l <> char ':' <+>
+        text "parse" <+> text "error" <> char ':' <+>
+        text s
+      go (LexicalError l) = 
+        pretty l <> char ':' <+>
+        text "lexical" <+> text "error"
+      go (UnicodeError l e) = 
+        pretty l <> char ':' <+> 
+        text "unicode" <+> text "error" <> char ':' <+>
+        text (show e)
+      go (StrMsgError s) =
+        text s
+      go NoMsgError =
+        text "internal" <+> text "error"
 
 instance Exception ParseException
 
@@ -74,7 +89,7 @@ instance Error ParseException where
   noMsg = NoMsgError
 
 data S
-  = S { position :: Position
+  = S { pos :: Pos
       , buffer :: ByteString
       }
 
@@ -82,7 +97,7 @@ runParserT :: Monad m => ParserT m a -> ByteString -> m a
 runParserT (ParserT m) buffer = evalStateT m initState
   where
     initState =
-      S { position = Position 1 1
+      S { pos = Pos 1 1
         , buffer
         }
 

@@ -1,30 +1,34 @@
-{-# LANGUAGE FlexibleContexts, NoMonomorphismRestriction #-}
+{-# LANGUAGE DataKinds, FlexibleContexts, TypeOperators #-}
 module Language.Glyph.AddSort
-       ( Sort (..)
-       , addSort
+       ( addSort
        ) where
 
-import Control.Applicative
-import Control.Exception
-
+import Data.Generics
 import Data.Monoid
 
-import Language.Glyph.Annotation.Location
-import Language.Glyph.Annotation.Sort
-import Language.Glyph.Generics
-import Language.Glyph.Logger
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
+import Language.Glyph.Record hiding (Sort, Symtab, name)
+import qualified Language.Glyph.Record as Record
+import Language.Glyph.Sort
 import Language.Glyph.Syntax
 
+type Symtab sym = IdentMap (Record sym)
+type Symtab' sym = IdentMap (Record ('(Record.Sort, Sort) ': sym))
+
 addSort :: ( Data a
-          , Monad m
-          ) => ([Stmt a], IdentMap sym) -> m ([Stmt a], IdentMap (Annotated Sort sym))
-addSort (stmts, symtab) = do
-  let symtab' = sort' stmts
-  return (stmts,
-          IdentMap.intersectionWith (flip Annotated) symtab symtab' <>
-          (throw PreviousErrors <$> symtab))
+           , Select Stmts [Stmt a] fields
+           , Select Record.Symtab (Symtab sym) fields
+           , Remove Record.Symtab fields fields'
+           , Monad m
+           ) =>
+           Record fields ->
+           m (Record ('(Record.Symtab, Symtab' sym) ': fields'))
+addSort r = return $ symtab #= xs' #| (r #- symtab)
+  where
+    xs = r#.symtab
+    sorts = sort' (r#.stmts)
+    xs' = IdentMap.intersectionWith' (\ r' x -> sort #= x #| r') Var xs sorts
 
 sort' :: Data a => a -> IdentMap Sort
 sort' =

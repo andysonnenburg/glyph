@@ -1,36 +1,36 @@
 {-# LANGUAGE
     DeriveDataTypeable
+  , FlexibleContexts
   , FlexibleInstances
   , GeneralizedNewtypeDeriving
   , MultiParamTypeClasses
   , StandaloneDeriving
   , UndecidableInstances #-}
 module Language.Glyph.Logger
-       ( module Language.Glyph.Logger.Class
-       , LoggerT
-       , LoggerException (..)
+       ( LoggerT
        , runLoggerT
+       , LoggerException (..)
        ) where
 
 import Control.Applicative
 import Control.Exception
-import Control.Monad.Error hiding (liftIO)
-import qualified Control.Monad.Trans as Trans
-import Control.Monad.State hiding (liftIO, put)
-import qualified Control.Monad.State as State
+import Control.Monad.Error
+import Control.Monad.Writer
 
 import Data.Typeable
 
-import Language.Glyph.Logger.Class
-import Language.Glyph.Logger.Instances ()
-import Language.Glyph.Message
+import Language.Glyph.Msg
 import Language.Glyph.Unique
 
-import System.IO
+import System.Console.Terminfo.PrettyPrint
+
+import Text.PrettyPrint.Free
+
+import Prelude hiding (foldr1)
 
 newtype LoggerT m a
-  = LoggerT ( StateT S m a
-            ) deriving ( Functor
+  = LoggerT { unLoggerT :: WriterT Msgs m a
+            } deriving ( Functor
                        , Applicative
                        , Monad
                        , MonadIO
@@ -38,38 +38,38 @@ newtype LoggerT m a
                        , MonadFix
                        )
 
+instance Monad m => MonadWriter Msgs (LoggerT m) where
+  tell = LoggerT . tell
+  listen = LoggerT . listen . unLoggerT
+  pass = LoggerT . pass . unLoggerT
+
 deriving instance MonadError e m => MonadError e (LoggerT m)
 
-data LoggerException
-  = PreviousErrors deriving Typeable
+data LoggerException = PreviousErrors deriving Typeable
 
 instance Show LoggerException where
-  show _ = "failed due to previous errors"
+  show = show . pretty
 
 instance Exception LoggerException
 
-type S = Bool
-
-instance MonadIO m => MonadLogger Message (LoggerT m) where
-  log x =
-    case x of
-      Warning w ->
-        liftIO $ hPutStrLn stderr ("warning: " ++ show w)
-      Error e -> do
-        liftIO $ hPutStrLn stderr ("error: " ++ show e)
-        put True
+instance Pretty LoggerException where
+  pretty = go
+    where
+      go PreviousErrors =
+        text "failed" <+>
+        text "due" <+>
+        text "to" <+>
+        text "previous" <+>
+        text "errors"
 
 runLoggerT :: MonadIO m => LoggerT m a -> m a
-runLoggerT (LoggerT m) = do
-  (a, s) <- runStateT m False
-  when s $ Trans.liftIO $ throwIO PreviousErrors
+runLoggerT m = do
+  (a, msgs) <- runWriterT . unLoggerT $ m
+  let doc = vcat . map pretty $ msgs :: TermDoc
+  liftIO $ do
+    display doc
+    unless (null msgs) $ putChar '\n'
   return a
-
-put :: Monad m => S -> LoggerT m ()
-put = LoggerT . State.put
-
-liftIO :: MonadIO m => IO a -> LoggerT m a
-liftIO = LoggerT . Trans.liftIO
 
 instance UniqueMonad m => UniqueMonad (LoggerT m) where
   freshUnique = lift freshUnique

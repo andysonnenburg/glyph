@@ -2,6 +2,7 @@
     FlexibleInstances
   , GeneralizedNewtypeDeriving
   , MultiParamTypeClasses
+  , StandaloneDeriving
   , UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Glyph.Unique
@@ -18,10 +19,6 @@ import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
-
-import Language.Glyph.Logger.Class
-
-import Prelude hiding (log)
 
 import Language.Glyph.Unique.Internal
 
@@ -45,6 +42,8 @@ newtype UniqueSupplyT m a
                              , MonadTrans
                              )
 
+deriving instance MonadWriter w m => MonadWriter w (UniqueSupplyT m)
+
 runUniqueSupplyT :: Monad m => UniqueSupplyT m a -> m a
 runUniqueSupplyT = flip evalStateT 0 . unUniqueSupplyT
 
@@ -53,6 +52,3 @@ instance Monad m => UniqueMonad (UniqueSupplyT m) where
     i <- get
     put $ i + 1
     return $ intToUnique i
-
-instance MonadLogger w m => MonadLogger w (UniqueSupplyT m) where
-  log = lift . log

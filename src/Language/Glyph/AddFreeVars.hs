@@ -2,6 +2,7 @@
     FlexibleContexts
   , PatternGuards
   , ScopedTypeVariables
+  , TypeOperators
   , ViewPatterns #-}
 module Language.Glyph.AddFreeVars
        ( addFreeVars
@@ -9,59 +10,70 @@ module Language.Glyph.AddFreeVars
 
 import Data.Monoid
 
-import Language.Glyph.Annotation.FreeVars hiding (freeVars)
-import Language.Glyph.Annotation.Sort
+import Language.Glyph.Record hiding (Sort, Symtab)
+import qualified Language.Glyph.Record as Record
+import Language.Glyph.Sort
 import Language.Glyph.Generics
-import Language.Glyph.IdentMap (IdentMap, (!), intersectionWith')
+import Language.Glyph.IdentMap (IdentMap, (!))
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Syntax
 
+type Symtab sym = IdentMap (Record sym)
+type Symtab' sym = IdentMap (Record ('(FreeVars, IdentSet) ': sym))
+
 addFreeVars :: ( Data a
-              , HasSort sym
-              , Monad m
-              ) =>
-              ([Stmt a], IdentMap sym) ->
-              m ([Stmt a], IdentMap (Annotated FreeVars sym))
-addFreeVars (stmts, symtab) =
-  return (stmts, intersectionWith' (flip withFreeVars) mempty symtab symtab')
+               , Select Record.Sort Sort sym
+               , Select Stmts [Stmt a] fields
+               , Select Record.Symtab (Symtab sym) fields
+               , Remove Record.Symtab fields fields'
+               , Monad m
+               ) =>
+               Record fields ->
+               m (Record ('(Record.Symtab, Symtab' sym) ': fields'))
+addFreeVars r = return $ symtab #= symtab'' #| (r #- symtab)
   where
-    symtab' = freeVarsQ symtab stmts
+    stmts' = r#.stmts
+    symtab' = r#.symtab
+    symtab'' =
+      IdentMap.intersectionWith'
+      (\ r' x -> freeVars #= x #| r') mempty symtab' freeVars'
+    freeVars' = freeVarsQ symtab' stmts'
 
 freeVarsQ :: forall a sym .
-            ( Data a
-            , HasSort sym
-            ) => IdentMap sym -> [Stmt a] -> IdentMap IdentSet
-freeVarsQ symtab =
+             ( Data a
+             , Select Record.Sort Sort sym
+             ) => IdentMap (Record sym) -> [Stmt a] -> IdentMap IdentSet
+freeVarsQ symtab' =
   everythingButFuns (<>)
   (mempty `mkQ` queryStmt `extQ` queryExpr)
   where
     queryStmt :: StmtView a -> IdentMap IdentSet
-    queryStmt (FunDeclS (ident -> x) params stmts) =
-      queryFun x params stmts
+    queryStmt (FunDeclS (ident -> x) params stmts') =
+      queryFun x params stmts'
     queryStmt _ =
       mempty
 
     queryExpr :: ExprView a -> IdentMap IdentSet
-    queryExpr (FunE x params stmts) =
-      queryFun x params stmts
+    queryExpr (FunE x params stmts') =
+      queryFun x params stmts'
     queryExpr _ =
       mempty
 
-    queryFun x (map ident -> params) stmts =
-      freeVars <>
+    queryFun x (map ident -> params) stmts' =
+      freeVars' <>
       IdentMap.singleton x (nestedFreeVars <> vars \\ varDecls)
       where
-        varDecls = varDeclsQ stmts <> IdentSet.fromList params
-        vars = varsQ symtab stmts
+        varDecls = varDeclsQ stmts' <> IdentSet.fromList params
+        vars = varsQ symtab' stmts'
         nestedFreeVars =
           mconcat .
-          map (freeVars !) .
+          map (freeVars' !) .
           IdentSet.toList $
           nestedFuns
-        nestedFuns = funDeclsQ stmts
-        freeVars = freeVarsQ symtab stmts
+        nestedFuns = funDeclsQ stmts'
+        freeVars' = freeVarsQ symtab' stmts'
 
 varDeclsQ :: forall a . Data a => [Stmt a] -> IdentSet
 varDeclsQ =
@@ -74,12 +86,14 @@ varDeclsQ =
     queryStmt _ =
       mempty
 
-varsQ :: (Data a, HasSort sym) => IdentMap sym -> a -> IdentSet
-varsQ symtab =
+varsQ :: ( Data a
+         , Select Record.Sort Sort sym
+         ) => IdentMap (Record sym) -> a -> IdentSet
+varsQ symtab' =
   everythingButFuns (<>)
   (mempty `mkQ` queryExpr)
   where
-    queryExpr x | Var <- sort (symtab ! x) =
+    queryExpr x | Var <- (symtab' ! x)#.sort =
       IdentSet.singleton x
     queryExpr _ =
       mempty

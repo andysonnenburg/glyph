@@ -1,8 +1,7 @@
 {-# LANGUAGE
     DeriveDataTypeable
   , FlexibleContexts
-  , ScopedTypeVariables
-  , ViewPatterns #-}
+  , ScopedTypeVariables #-}
 module Language.Glyph.CheckReturn
        ( checkReturn
        ) where
@@ -10,38 +9,39 @@ module Language.Glyph.CheckReturn
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
+import Control.Monad.Writer
 
 import Data.Generics
 
-import Language.Glyph.Location
-import Language.Glyph.Logger
-import Language.Glyph.Message
+import Language.Glyph.Msg
+import qualified Language.Glyph.Msg as Msg
 import Language.Glyph.Syntax
 
-checkReturn :: forall a b m .
-              ( Data a
-              , HasLocation a
-              , MonadLogger Message m
-              ) => ([Stmt a], b) -> m ([Stmt a], b)
-checkReturn (stmts, symtab) = do
-  checkReturn' stmts
-  return (stmts, symtab)
+import Text.PrettyPrint.Free
+
+checkReturn :: forall a m .
+               ( Data a
+               , Pretty a
+               , MonadWriter Msgs m
+               ) => [Stmt a] -> m ()
+checkReturn = checkReturn'
   where
     checkReturn' = runReaderT' . query
 
-    query :: Data c => c -> ReaderT Bool m ()
-    query = everythingBut (>>)
-            ((return (), False) `mkQ`
-             queryStmt `extQ`
-             queryStmtView)
+    query :: forall a . Data a => a -> ReaderT Bool m ()
+    query =
+      everythingBut (>>)
+      ((return (), False) `mkQ`
+       queryStmt `extQ`
+       queryStmtView)
 
     queryStmt :: Stmt a -> (ReaderT Bool m (), Bool)
-    queryStmt x@(view -> ReturnS _) = (m, True)
+    queryStmt (Stmt a (ReturnS _)) = (m, True)
       where
         m = do
           illegalReturn <- ask
           when illegalReturn $
-            runReaderT (logError IllegalReturn) (location x)
+            tell $ Msg.singleton $ mkErrorMsg a IllegalReturn
     queryStmt _ = (return (), False)
 
     queryStmtView :: StmtView a -> (ReaderT Bool m (), Bool)
@@ -60,11 +60,20 @@ data CheckReturnException
   | NoMsgError deriving Typeable
 
 instance Show CheckReturnException where
-  show x =
-    case x of
-      IllegalReturn -> "illegal return statement"
-      StrMsgError s -> s
-      NoMsgError -> "internal error"
+  show = show . pretty
+
+instance Pretty CheckReturnException where
+  pretty = go
+    where
+      go IllegalReturn =
+        text "illegal" </>
+        text "return" </>
+        text "statement"
+      go (StrMsgError s) =
+        text s
+      go NoMsgError =
+        text "internal" </>
+        text "error"
 
 instance Exception CheckReturnException
 

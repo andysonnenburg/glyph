@@ -1,5 +1,9 @@
 {
-{-# LANGUAGE FlexibleContexts, NoMonomorphismRestriction, RecordWildCards #-}
+{-# LANGUAGE
+    FlexibleContexts
+  , NoMonomorphismRestriction
+  , RecordWildCards
+  , TypeOperators #-}
 {-# OPTIONS_GHC
     -fno-warn-lazy-unlifted-bindings
     -fno-warn-missing-signatures
@@ -14,7 +18,7 @@ import Control.Monad.Error hiding (void)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as ByteString
 
-import Language.Glyph.Annotation.Location
+import Language.Glyph.Loc
 import Language.Glyph.Lex.Alex
 import Language.Glyph.Parser.Internal
 import Language.Glyph.Token hiding (True, False)
@@ -63,8 +67,8 @@ $white+ ;
 }
 
 {  
-special :: MonadError ParseException m => Token -> Action m
-special x l _ _ = return (Annotated l x)
+special :: MonadError ParseException m => TokenView -> Action m
+special x l _ _ = return $ Token l x
 
 var :: MonadError ParseException m => Action m
 var = special Var
@@ -75,7 +79,7 @@ fn = special Fn
 name :: MonadError ParseException m => Action m
 name l s n = do
   s' <- fromLazyByteString $ ByteString.take n' $ s
-  return $ Annotated l $ Name $ s'
+  return $ Token l (Name s')
   where
     n' = fromIntegral n
 

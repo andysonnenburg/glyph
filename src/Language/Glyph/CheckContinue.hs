@@ -1,8 +1,7 @@
 {-# LANGUAGE
     DeriveDataTypeable
   , FlexibleContexts
-  , ScopedTypeVariables
-  , ViewPatterns #-}
+  , ScopedTypeVariables #-}
 module Language.Glyph.CheckContinue
        ( checkContinue
        ) where
@@ -10,39 +9,40 @@ module Language.Glyph.CheckContinue
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
+import Control.Monad.Writer
 
 import Data.Generics
 
-import Language.Glyph.Location
-import Language.Glyph.Logger
-import Language.Glyph.Message
+import Language.Glyph.Msg
+import qualified Language.Glyph.Msg as Msg
 import Language.Glyph.Syntax
 
-checkContinue :: forall a b m .
-                ( Data a
-                , HasLocation a
-                , MonadLogger Message m
-                ) => ([Stmt a], b) -> m ([Stmt a], b)
-checkContinue (stmts, symtab) = do
-  checkContinue' stmts
-  return (stmts, symtab)
+import Text.PrettyPrint.Free
+
+checkContinue :: forall a m .
+                 ( Data a
+                 , Pretty a
+                 , MonadWriter Msgs m
+                 ) => [Stmt a] -> m ()
+checkContinue = checkContinue'
   where
     checkContinue' = runReaderT' . query
 
-    query :: Data c => c -> ReaderT Bool m ()
-    query = everythingBut (>>)
-            ((return (), False) `mkQ`
-             queryStmt `extQ`
-             queryStmtView `extQ`
-             queryExprView)
+    query :: forall a . Data a => a -> ReaderT Bool m ()
+    query =
+      everythingBut (>>)
+      ((return (), False) `mkQ`
+       queryStmt `extQ`
+       queryStmtView `extQ`
+       queryExprView)
 
     queryStmt :: Stmt a -> (ReaderT Bool m (), Bool)
-    queryStmt x@(view -> ContinueS) = (m, True)
+    queryStmt (Stmt a ContinueS) = (m, True)
       where
         m = do
           illegalContinue <- ask
           when illegalContinue $
-            runReaderT (logError IllegalContinue) (location x)
+            tell $ Msg.singleton $ mkErrorMsg a IllegalContinue
     queryStmt _ = (return (), False)
 
     queryStmtView :: StmtView a -> (ReaderT Bool m (), Bool)
@@ -75,11 +75,20 @@ data CheckContinueException
   | NoMsgError deriving Typeable
 
 instance Show CheckContinueException where
-  show x =
-    case x of
-      IllegalContinue -> "illegal continue statement"
-      StrMsgError s -> s
-      NoMsgError -> "internal error"
+  show = show . pretty
+
+instance Pretty CheckContinueException where
+  pretty = go
+    where
+      go IllegalContinue =
+        text "illegal" </>
+        text "continue" </>
+        text "statement"
+      go (StrMsgError s) =
+        text s
+      go NoMsgError =
+        text "internal" </>
+        text "error"
 
 instance Exception CheckContinueException
 

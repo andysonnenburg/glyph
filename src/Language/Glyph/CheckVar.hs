@@ -23,34 +23,27 @@ import Data.Maybe
 import Data.Monoid
 import qualified Data.Text as Text
 
-import Language.Glyph.Annotation.ExtraSet
-import Language.Glyph.Annotation.Name hiding (Name, name)
-import qualified Language.Glyph.Annotation.Name as Name
-import Language.Glyph.Annotation.Sort
 import Language.Glyph.Generics
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentSet as IdentSet
-import Language.Glyph.Location hiding (logError)
-import qualified Language.Glyph.Location as Location
-import Language.Glyph.Logger
-import Language.Glyph.Message
+import Language.Glyph.Msg
 import Language.Glyph.Syntax
+
+import Text.PrettyPrint.Free
 
 import Prelude hiding (break)
 
-checkVar :: ( HasLocation a
-           , HasName b
-           , HasSort b
-           , HasExtraSet b
-           , MonadLogger Message m
-           ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap b)
-checkVar (stmts, symtab) =
+checkVar :: ( Select Name b
+            , Select Record.Sort Sort b
+            , Select ExtraSet IdentSet b
+            , MonadWriter Msgs m
+            ) => Record fields -> m ()
+checkVar r =
   (runReaderT' R { symtab, afterFinally } .
    runStateT' S { break, scope, scopes } $
-   checkStmts before stmts) >>
-  return (stmts, symtab)
+   checkStmts before stmts)
   where
     runReaderT' = flip runReaderT
     runStateT' = flip evalStateT
@@ -61,16 +54,37 @@ checkVar (stmts, symtab) =
     scopes = mempty
 
 data CheckVarException
-  = NotInitialized (Maybe NameView) deriving Typeable
+  = NotInitialized (Maybe NameView)
+  | StrMsgError
+  | NoMsgError deriving Typeable
 
 instance Show CheckVarException where
-  show (NotInitialized (Just x)) =
-    "`" ++ Text.unpack x ++ "' may not have been initialized"
-  show (NotInitialized Nothing) =
-    "a variable may not have been initialized"
+  show = show . pretty
 
+instance Pretty CheckVarException where
+  pretty = go
+    where
+      go (NotInitialized (Just x)) =
+        char '`' <> text (Text.unpack x) <> char '\'' </>
+        text "may" </> text "not" </>
+        text "have" </> text "been" </> 
+        text "initialized"
+      go (NotInitialized Nothing) =
+        text "a" </> text "variable" </> 
+        text "may" </> text "not" </> 
+        text "have" </> text "been" </> 
+        text "initialized"
+      go (StrMsgError s) =
+        text s
+      go NoMsgError =
+        text "internal" </>
+        text "error"
 
 instance Exception CheckVarException
+
+instance Error CheckVarException where
+  strMsg = StrMsgError
+  noMsg = NoMsgError
 
 data S
   = S { break :: IdentSet
@@ -83,17 +97,17 @@ data R a
       , symtab :: IdentMap a
       }
 
-checkStmts :: ( HasName a
-             , HasSort a
-             , HasExtraSet a
-             , HasLocation b
-             , MonadReader (R a) m
-             , MonadState S m
-             , MonadLogger Message m
-             ) =>
-             IdentSet ->
-             [Stmt b] ->
-             m (IdentSet, IdentSet, IdentSet)
+checkStmts :: ( Pretty a
+              , Select Name (Just NameView) sym
+              , Select Record.Sort Sort sym
+              , Select ExtraSet IdentSet sym
+              , MonadReader (R sym) m
+              , MonadState S m
+              , MonadLogger Message m
+              ) =>
+              IdentSet ->
+              [Stmt a] ->
+              m (IdentSet, IdentSet, IdentSet)
 checkStmts = go
   where
     go before stmts = do
@@ -105,22 +119,22 @@ checkStmts = go
       (after, _, _) <- checkStmt before stmt
       return after
 
-checkStmt :: ( HasName a
-            , HasSort a
-            , HasExtraSet a
-            , HasLocation b
-            , MonadReader (R a) m
-            , MonadState S m
-            , MonadLogger Message m
-            ) =>
-            IdentSet ->
-            Stmt b ->
-            m (IdentSet, IdentSet, IdentSet)
+checkStmt :: ( Pretty a
+             , Select Name (Just NameView) sym
+             , Select Record.Sort Sort sym
+             , Select ExtraSet IdentSet sym
+             , MonadReader (R sym) m
+             , MonadState S m
+             , MonadLogger Message m
+             ) =>
+             IdentSet ->
+             Stmt a ->
+             m (IdentSet, IdentSet, IdentSet)
 checkStmt before x = do
   R {..} <- ask
   S { scope, scopes } <- get
   let vars = IdentSet.unions (scope : scopes)
-  runWithLocationT' (location x) $ case view x of
+  local (extract x) $ case view x of
     ExprS expr ->
       checkExpr before expr
 
@@ -182,17 +196,17 @@ checkStmt before x = do
     BlockS stmts ->
       withScope $ checkStmts before stmts
 
-checkExpr :: ( HasName a
-            , HasSort a
-            , HasExtraSet a
-            , HasLocation b
-            , MonadReader (R a) m
-            , MonadState S m
-            , MonadLogger Message m
-            ) =>
-            IdentSet ->
-            Expr b ->
-            WithLocationT m (IdentSet, IdentSet, IdentSet)
+checkExpr :: ( Pretty a
+             , Select Name (Just NameView) sym
+             , Select Record.Sort Sort sym
+             , Select ExtraSet IdentSet sym
+             , MonadReader (R sym) m
+             , MonadState S m
+             , MonadLogger Message m
+             ) =>
+             IdentSet ->
+             Expr a ->
+             m (IdentSet, IdentSet, IdentSet)
 checkExpr before x = do
   R {..} <- ask
   S {..} <- get
@@ -252,28 +266,28 @@ checkMaybeStmt before = maybe (returnExpr before) (checkStmt before)
 checkBefore :: ( HasName a
               , HasSort a
               , HasExtraSet a
-              , MonadReader (R a) m
+              , MonadReader (R a sym) m
               , MonadLogger Message m
-              ) => IdentSet -> Ident -> WithLocationT m ()
+              ) => IdentSet -> Ident -> m ()
 checkBefore before loc = do
   R {..} <- ask
   required <- askBefore loc
   let uninitialized = required \\ before
   unless (IdentSet.null uninitialized) $
     forM_ (IdentSet.toList uninitialized) $
-      logError . NotInitialized . Name.name . (symtab !)
+      tell $ Msg.singleton $ mkErrorMsg a $ NotInitialized . Name.name . (symtab !)
 
-askBefore :: ( HasSort a
-            , HasExtraSet a
-            , MonadReader (R a) m
-            ) => Ident -> m IdentSet
+askBefore :: ( Select Record.Sort Sort sym
+             , Select ExtraSet IdentSet sym
+             , MonadReader (R sym) m
+             ) => Ident -> m IdentSet
 askBefore x = do
   R {..} <- ask
-  let info = symtab !x
+  let sym = symtab ! x
   return $
-    case sort info of
+    case sym#.sort of
       Var -> IdentSet.singleton x
-      Fun -> extraSet info
+      Fun -> sym#.extraSet
 
 withScope :: MonadState S m => m a -> m a
 withScope m = do
@@ -315,29 +329,3 @@ returnBool true false = return (IdentSet.intersection true false, true, false)
 
 returnExpr :: Monad m => IdentSet -> m (IdentSet, IdentSet, IdentSet)
 returnExpr after = return (after, after, after)
-
-runWithLocationT :: WithLocationT m a -> Location -> m a
-runWithLocationT (WithLocationT m) = runReaderT m
-
-runWithLocationT' :: Location -> WithLocationT m a -> m a
-runWithLocationT' = flip runWithLocationT
-
-newtype WithLocationT m a
-  = WithLocationT { unWithLocationT :: ReaderT Location m a
-                  } deriving ( Monad
-                             , MonadTrans
-                             )
-
-instance MonadReader r m => MonadReader r (WithLocationT m) where
-  ask = lift ask
-  local f (WithLocationT m) = WithLocationT $ (mapReaderT . local) f m
-
-deriving instance MonadLogger w m => MonadLogger w (WithLocationT m)
-
-deriving instance MonadState s m => MonadState s (WithLocationT m)
-
-withLocation :: Monad m => Location -> WithLocationT m a -> WithLocationT m a
-withLocation x = WithLocationT . local (const x) . unWithLocationT
-
-logError :: (Exception e, MonadLogger Message m) => e -> WithLocationT m ()
-logError = WithLocationT . Location.logError

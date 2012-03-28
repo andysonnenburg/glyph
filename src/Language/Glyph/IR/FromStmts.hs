@@ -5,10 +5,10 @@
   , FunctionalDependencies
   , MultiParamTypeClasses
   , NamedFieldPuns
+  , NoMonomorphismRestriction
   , RankNTypes
   , RebindableSyntax
   , ScopedTypeVariables #-}
-{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 module Language.Glyph.IR.FromStmts
        ( ContFlowException (..)
        , fromStmts
@@ -20,47 +20,58 @@ import Compiler.Hoopl hiding ((<*>))
 import qualified Compiler.Hoopl as Hoopl
 import Control.Monad (ap, join, liftM)
 import qualified Control.Monad as Monad
-import Control.Monad.Error.Class (MonadError)
+import Control.Monad.Error (Error (..), MonadError)
 import Control.Monad.Reader (MonadReader, runReaderT)
 
-import Data.Monoid (Monoid)
-import qualified Data.Monoid as Monoid
+import Data.Foldable (toList)
+import Data.List.NonEmpty (nonEmpty)
+import Data.Semigroup
 import Data.Typeable
 
 import Language.Glyph.Hoopl
 import Language.Glyph.Hoopl.Monad.Writer
-import Language.Glyph.IR.RemoveUnreachable
 import Language.Glyph.IR.Syntax
 import Language.Glyph.Ident
-import qualified Language.Glyph.Syntax.Internal as Glyph
+import qualified Language.Glyph.Syntax as Glyph
+
+import Text.PrettyPrint.Free
 
 import Prelude hiding (Monad (..), (=<<), last)
 
-fromStmts :: ( Monoid a
+fromStmts :: ( Semigroup a
              , MonadError ContFlowException m
              , UniqueMonad m
              ) => [Glyph.Stmt a] -> m (Graph (Insn a) O C)
 fromStmts = fromFun []
 
-fromFun :: ( Monoid a
+fromFun :: ( Semigroup a
            , MonadError ContFlowException m
            , UniqueMonad m
            ) => [Ident] -> [Glyph.Stmt a] -> m (Graph (Insn a) O C)
-fromFun params stmts = do
-  graph <- liftM unW . runReaderT' r . execWriterT . mapM_ tellStmt $ stmts
-  let graph' = graph |<*>| mkLast ReturnVoid
-  return $ removeUnreachable graph'
+fromFun params =
+  maybe fromEmpty fromNonEmpty . nonEmpty
   where
-    (>>=) = (Monad.>>=)
     return = Monad.return
 
     runReaderT' = flip runReaderT
-
-    r = R { annotation = Monoid.mconcat $ map extract stmts
-          , finally = initFinally
-          , maybeCatchLabel = Nothing
-          , maybeLoopLabels = Nothing
-          }
+    
+    fromEmpty =
+      return $ mkLast ReturnVoid
+    
+    fromNonEmpty stmts =
+      liftM unW' .
+      runReaderT' r .
+      execWriterT .
+      mapM_ tellStmt .
+      toList $ stmts
+      where
+        unW' w = unW w |<*>| mkLast ReturnVoid
+    
+        r = R { annotation = sconcat . fmap extract $ stmts
+              , finally = initFinally
+              , maybeCatchLabel = Nothing
+              , maybeLoopLabels = Nothing
+              }
 
 initFinally :: Monad m => Finally m
 initFinally = Finally { tellBeforeLoopExit
@@ -79,19 +90,35 @@ data ContFlowException
   | NoMsgError deriving Typeable
 
 instance Show ContFlowException where
-  show x =
-    case x of
-      IllegalBreak -> "illegal break statement"
-      IllegalContinue -> "illegal continue statement"
-      StrMsgError s -> s
-      NoMsgError -> "internal error"
+  show = show . pretty
+
+instance Pretty ContFlowException where
+  pretty = go
+    where
+      go IllegalBreak =
+        text "illegal" </>
+        text "break" </>
+        text "statement"
+      go IllegalContinue =
+        text "illegal" </>
+        text "continue" </>
+        text "statement"
+      go (StrMsgError s) =
+        text s
+      go NoMsgError =
+        text "internal" </>
+        text "error"
 
 instance Exception ContFlowException
+
+instance Error ContFlowException where
+  strMsg = StrMsgError
+  noMsg = NoMsgError
 
 tellStmt :: forall a m .
             ( MonadError ContFlowException m
             , MonadReader (R a) m
-            , Monoid a
+            , Semigroup a
             , UniqueMonad m
             ) => Glyph.Stmt a -> WriterT (W a) m O O ()
 tellStmt = tellStmt'
@@ -211,7 +238,7 @@ tellStmt = tellStmt'
 
 tellExpr :: ( MonadError ContFlowException m
             , MonadReader (R a) m
-            , Monoid a
+            , Semigroup a
             , UniqueMonad m
             ) => Glyph.Expr a -> WriterT (W a) m O O ExprIdent
 tellExpr = tellExpr'

@@ -14,54 +14,54 @@ import Data.Maybe
 import Data.Semigroup
 import Data.Text (Text)
 
-import Language.Glyph.Annotation.Location
 import Language.Glyph.Ident
 import Language.Glyph.Lex.Internal
+import Language.Glyph.Loc
 import Language.Glyph.Parser
-import Language.Glyph.Syntax.Internal hiding (Expr, ExprView, Name, Stmt, StmtView)
-import qualified Language.Glyph.Syntax.Internal as Syntax
-import Language.Glyph.Token hiding (False, Return, True)
+import Language.Glyph.Syntax hiding (Expr, ExprView, Name, Stmt, StmtView)
+import qualified Language.Glyph.Syntax as Syntax
+import Language.Glyph.Token hiding (False, Return, True, loc)
 import qualified Language.Glyph.Token as Token
 import Language.Glyph.Unique
 
 import Prelude hiding (break, lex)
 }
 
-%tokentype { Located Token }
+%tokentype { Token }
 
 %token
-VAR { (extract -> Var) }
-FN { (extract -> Fn) }
-NAME { (extract -> Name _) }
-'.' { (extract -> Period) }
-',' { (extract -> Comma) }
-'(' { (extract -> LeftParenthesis) }
-')' { (extract -> RightParenthesis) }
-'{' { (extract -> LeftBrace) }
-'}' { (extract -> RightBrace) }
-';' { (extract -> Semicolon) }
-':' { (extract -> Colon) }
-INT { (extract -> Int _) }
-TRUE { (extract -> Token.True) }
-FALSE { (extract -> Token.False) }
-VOID { (extract -> Token.Void) }
-'!' { (extract -> Token.Bang) }
-RETURN { (extract -> Token.Return) }
-IF { (extract -> Token.If) }
-ELSE { (extract -> Token.Else) }
-WHILE { (extract -> Token.While) }
-BREAK { (extract -> Token.Break) }
-CONTINUE { (extract -> Token.Continue) }
-THROW { (extract -> Token.Throw) }
-TRY { (extract -> Token.Try) }
-FINALLY { (extract -> Token.Finally) }
-'=' { (extract -> Equals) }
+VAR { (view -> Var) }
+FN { (view -> Fn) }
+NAME { (view -> Name _) }
+'.' { (view -> Period) }
+',' { (view -> Comma) }
+'(' { (view -> LeftParenthesis) }
+')' { (view -> RightParenthesis) }
+'{' { (view -> LeftBrace) }
+'}' { (view -> RightBrace) }
+';' { (view -> Semicolon) }
+':' { (view -> Colon) }
+INT { (view -> Int _) }
+TRUE { (view -> Token.True) }
+FALSE { (view -> Token.False) }
+VOID { (view -> Token.Void) }
+'!' { (view -> Token.Bang) }
+RETURN { (view -> Token.Return) }
+IF { (view -> Token.If) }
+ELSE { (view -> Token.Else) }
+WHILE { (view -> Token.While) }
+BREAK { (view -> Token.Break) }
+CONTINUE { (view -> Token.Continue) }
+THROW { (view -> Token.Throw) }
+TRY { (view -> Token.Try) }
+FINALLY { (view -> Token.Finally) }
+'=' { (view -> Equals) }
 
 %name stmts
 
 %monad { (MonadError ParseException m, UniqueMonad m) } { ParserT m } { >>= } { return }
 
-%lexer { lexer } { (extract -> EOF) }
+%lexer { lexer } { (view -> EOF) }
 
 %error { parseError }
 
@@ -109,12 +109,12 @@ expr :: { Expr }
 
 return :: { Stmt }
   : RETURN optionMaybe(expr) {
-      stmt $1 (fromMaybe (location $1) (location <%> $2)) (return' $2)
+      stmt $1 (fromMaybe (loc $1) (loc <%> $2)) (return' $2)
     }
 
 varDecl :: { Stmt }
-  : VAR locatedName optionMaybe(snd('=', expr)) {
-      stmt $1 (fromMaybe (location $2) (location <%> $3)) (varDecl (extract $2) $3)
+  : VAR nameWithLoc optionMaybe(snd('=', expr)) {
+      stmt $1 (fromMaybe (loc $2) (loc <%> $3)) (varDecl (extract $2) $3)
     }
 
 break :: { Stmt }
@@ -136,7 +136,7 @@ block :: { Stmt }
 
 ifThenElse :: { Stmt }
   : IF '(' expr ')' block optionMaybe(snd(ELSE, block)) {
-      stmt $1 (fromMaybe (location $5) (location <%> $6)) (ifThenElse $3 $5 $6)
+      stmt $1 (fromMaybe (loc $5) (loc <%> $6)) (ifThenElse $3 $5 $6)
     }
 
 while :: { Stmt }
@@ -146,7 +146,7 @@ tryFinally :: { Stmt }
   : TRY block FINALLY block { stmt $1 $4 (tryFinally $2 $4) }
 
 var :: { Expr }
-  : locatedName { expr $1 $1 (var (extract $1)) }
+  : nameWithLoc { expr $1 $1 (var (extract $1)) }
 
 fun :: { Expr }
   : FN '(' parameters ')' '{' manyStmts '}' {% liftM (expr $1 $7) (fun $3 $6) }
@@ -165,7 +165,7 @@ apply :: { Expr }
   : expr '(' arguments ')' { expr $1 $4 (apply $1 $3) }
 
 assign :: { Expr }
-  : locatedName '=' expr { expr $1 $3 (assign (extract $1) $3) }
+  : nameWithLoc '=' expr { expr $1 $3 (assign (extract $1) $3) }
 
 parameters :: { [Name] }
   : sepBy(name, ',') { $1 }
@@ -173,8 +173,8 @@ parameters :: { [Name] }
 name :: { Name }
   : NAME {% newName' $1 }
 
-locatedName :: { Located Name }
-  : NAME {% liftM (<% $1) (newName' $1) }
+nameWithLoc :: { WithLoc Name }
+  : NAME {% newNameWithLoc $1 }
 
 arguments :: { [Expr] }
   : sepBy(expr, ',') { $1 }
@@ -204,10 +204,10 @@ sepBy1(p, sep) :: { [a] }
 snd(p, q) :: { a }
   : p q { $2 }
 {
-type Stmt = Syntax.Stmt Location
-type StmtView = Syntax.StmtView Location
-type Expr = Syntax.Expr Location
-type ExprView = Syntax.ExprView Location
+type Stmt = Syntax.Stmt Loc
+type StmtView = Syntax.StmtView Loc
+type Expr = Syntax.Expr Loc
+type ExprView = Syntax.ExprView Loc
 type Name = Syntax.Name
 
 parse :: ( MonadError ParseException m
@@ -215,15 +215,13 @@ parse :: ( MonadError ParseException m
          ) => ParserT m [Stmt]
 parse = stmts
 
-lexer :: MonadError ParseException m => (Located Token -> ParserT m a) -> ParserT m a
+lexer :: MonadError ParseException m => (Token -> ParserT m a) -> ParserT m a
 lexer = (lex >>=)
 
 parseError :: MonadError ParseException m =>
-             Annotated Location Token ->
+             Token ->
              ParserT m a
-parseError x = throwError $ ParseError (location x) ("unexpected " ++ show x')
-  where
-    x' = extract x
+parseError (Token a x) = throwError $ ParseError a ("unexpected " ++ show x)
 
 varDecl :: Name -> Maybe Expr -> StmtView
 varDecl = VarDeclS
@@ -278,33 +276,63 @@ apply = ApplyE
 assign :: Name -> Expr -> ExprView
 assign = AssignE
 
-name :: Token -> Text
-name (Name x) = x
+name :: Token -> NameView
+name (view -> Name x) = x
 
-type Located = Annotated Location
+stmt :: (HasLoc a, HasLoc b) => a -> b -> StmtView -> Stmt
+stmt a b x = Syntax.Stmt (loc a <> loc b) x
 
-stmt :: (HasLocation a, HasLocation b) => a -> b -> StmtView -> Stmt
-stmt a b x = Syntax.Stmt (location a <> location b) x
-
-expr :: (HasLocation a, HasLocation b) => a -> b -> ExprView -> Expr
-expr a b x = Syntax.Expr (location a <> location b) x
+expr :: (HasLoc a, HasLoc b) => a -> b -> ExprView -> Expr
+expr a b x = Syntax.Expr (loc a <> loc b) x
 
 newName :: UniqueMonad m => NameView -> m Name
 newName x = liftM f freshIdent
   where
     f a = Syntax.Name a x
 
-newName' :: UniqueMonad m => Located Token -> m Name
-newName' = newName . name . extract
+newName' :: UniqueMonad m => Token -> m Name
+newName' = newName . name
 
-extract' :: Located a -> a
-extract' = extract
+newNameWithLoc :: UniqueMonad m => Token -> m (WithLoc Name)
+newNameWithLoc x = do
+  x' <- newName' x
+  return $ WithLoc x' $ loc x
+
+data WithLoc a = WithLoc a Loc
+
+instance Functor WithLoc where
+  fmap f (WithLoc a l) = WithLoc (f a) l
+
+instance Extend WithLoc where
+  duplicate x@(WithLoc _ l) = WithLoc x l
+  extend f x@(WithLoc _ l) = WithLoc (f x) l
+
+instance Comonad WithLoc where
+  extract (WithLoc a _) = a
+
+class HasLoc a where
+  loc :: a -> Loc
+
+instance HasLoc Loc where
+  loc = id
+
+instance HasLoc Token where
+  loc = Token.loc
+
+instance HasLoc Stmt where
+  loc (Syntax.Stmt x _) = x
+
+instance HasLoc Expr where
+  loc (Syntax.Expr x _) = x
+
+instance HasLoc (WithLoc a) where
+  loc (WithLoc _ x) = x
 
 infixl 4 <%>
 (<%>) :: Functor f => (a -> b) -> f a -> f b
 (<%>) = (<$>)
 
 infixl 4 <%
-(<%) :: Functor f => a -> f b -> f a
+(<%) :: Functor f => b -> f a -> f b
 (<%) = (<$)
 }

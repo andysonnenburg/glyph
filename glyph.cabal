@@ -1,7 +1,7 @@
 name: glyph
 build-type: Custom
 version: 0.1
-cabal-version: >= 1.2
+cabal-version: >= 1.8
 
 executable glyph
   main-is: Main.hs
@@ -25,6 +25,13 @@ executable glyph
     template-haskell,
     text,
     hoopl,
-    wl-pprint-extras
+    wl-pprint-extras,
+    wl-pprint-terminfo
   build-tools: alex >= 3, happy
   ghc-options: -Wall
+
+test-suite add-free-vars
+  type: detailed-0.9
+  test-module: Language.Glyph.AddFreeVars.Test
+  hs-source-dirs: tests
+  build-depends: base, Cabal >= 1.10.0.0

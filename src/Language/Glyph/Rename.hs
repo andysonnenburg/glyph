@@ -1,11 +1,11 @@
 {-# LANGUAGE
-    DeriveDataTypeable
+    DataKinds
+  , DeriveDataTypeable
   , FlexibleContexts
   , MultiParamTypeClasses
   , NamedFieldPuns
   , RecordWildCards
-  , ScopedTypeVariables
-  , ViewPatterns #-}
+  , ScopedTypeVariables #-}
 module Language.Glyph.Rename
        ( NameException (..)
        , rename
@@ -15,71 +15,68 @@ import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Writer hiding ((<>))
 
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Monoid
 import qualified Data.Text as Text
 import Data.Typeable
 
-import Language.Glyph.Location
-import Language.Glyph.Logger
 import Language.Glyph.Generics
-import Language.Glyph.Ident.Internal
-import Language.Glyph.Message
-import Language.Glyph.Syntax.Internal
+import Language.Glyph.Ident
+import Language.Glyph.Msg
+import qualified Language.Glyph.Msg as Msg
+import Language.Glyph.Syntax
 
-rename :: forall a b m .
-         ( Data a
-         , HasLocation a
-         , MonadLogger Message m
-         ) => ([Stmt a], b) -> m ([Stmt a], b)
-rename = go
+import Text.PrettyPrint.Free
+
+rename :: forall a m .
+          ( Data a
+          , Pretty a
+          , MonadWriter Msgs m
+          ) => [Stmt a] -> m [Stmt a]
+rename = evalStateT' . rename'
   where
-    go (stmts, symtab) = do
-      stmts' <- evalStateT' $ rename' stmts
-      return (stmts', symtab)
-
-    evalStateT' m = evalStateT m initState
-
     rename' stmts = do
       everythingThisScope (>>) (return () `mkQ` defineFunDecl) stmts
       everywhereThisScopeM (mkM transformStmt `extM` transformExpr) stmts
 
+    evalStateT' m = evalStateT m initState
+
     defineFunDecl :: Stmt a -> StateT S m ()
-    defineFunDecl x@(view -> FunDeclS name _ _) =
-      runReaderT (defineName name) (location x)
+    defineFunDecl (Stmt a (FunDeclS name _ _)) =
+      runReaderT (defineName name) a
     defineFunDecl _ =
       return ()
 
     transformStmt :: Stmt a -> StateT S m (Stmt a)
-    transformStmt x@(view -> VarDeclS name _) = do
-      runReaderT (defineName name) (location x)
+    transformStmt x@(Stmt a (VarDeclS name _)) = do
+      runReaderT (defineName name) a
       return x
-    transformStmt x@(view -> FunDeclS name params stmts) =
+    transformStmt (Stmt a (FunDeclS name params stmts)) =
       withScope $ do
-        runReaderT (mapM_ defineName params) (location x)
+        runReaderT (mapM_ defineName params) a
         stmts' <- rename' stmts
-        return $ x `update` FunDeclS name params stmts'
-    transformStmt x@(view -> BlockS stmts) =
+        return $ Stmt a $ FunDeclS name params stmts'
+    transformStmt (Stmt a (BlockS stmts)) =
       withScope $ do
         stmts' <- rename' stmts
-        return $ x `update` BlockS stmts'
+        return $ Stmt a $ BlockS stmts'
     transformStmt x =
       return x
 
     transformExpr :: Expr a -> StateT S m (Expr a)
-    transformExpr x@(view -> VarE name) = do
-      name' <- runReaderT (updateName name) (location x)
-      return $ x `update` VarE name'
-    transformExpr x@(view -> FunE a params stmts) =
+    transformExpr (Expr a (VarE name)) = do
+      name' <- runReaderT (updateName name) a
+      return $ Expr a $ VarE name'
+    transformExpr (Expr a (FunE x params stmts)) =
       withScope $ do
-        runReaderT (mapM_ defineName params) (location x)
+        runReaderT (mapM_ defineName params) a
         stmts' <- rename' stmts
-        return $ x `update` FunE a params stmts'
-    transformExpr x@(view -> AssignE name expr) = do
-      name' <- runReaderT (updateName name) (location x)
-      return $ x `update` AssignE name' expr
+        return $ Expr a $ FunE x params stmts'
+    transformExpr (Expr a (AssignE name expr)) = do
+      name' <- runReaderT (updateName name) a
+      return $ Expr a $ AssignE name' expr
     transformExpr x =
       return x
 
@@ -103,12 +100,21 @@ data NameException
   | NoMsgError deriving Typeable
 
 instance Show NameException where
-  show x =
-    case x of
-      NotFound a -> "`" ++ Text.unpack a ++ "' not found"
-      AlreadyDefined a -> "`" ++ Text.unpack a ++ "' already defined"
-      StrMsgError s -> s
-      NoMsgError -> "internal error"
+  show = show . pretty
+
+instance Pretty NameException where
+  pretty = go
+    where
+      go (NotFound a) =
+        char '`' <> text (Text.unpack a) <> char '\'' </>
+        text "not" </> text "found"
+      go (AlreadyDefined a) =
+        char '`' <> text (Text.unpack a) <> char '\'' </>
+        text "already" </> text "defined"
+      go (StrMsgError s) =
+        text s
+      go NoMsgError =
+        text "internal" </> text "error"
 
 instance Exception NameException
 
@@ -116,42 +122,47 @@ instance Error NameException where
   strMsg = StrMsgError
   noMsg = NoMsgError
 
-updateName :: ( MonadReader Location m
-             , MonadState S m
-             , MonadLogger Message m
-             ) => Name -> m Name
+updateName :: ( Pretty a
+              , MonadReader a m
+              , MonadState S m
+              , MonadWriter Msgs m
+              ) => Name -> m Name
 updateName name = do
   a <- lookupIdent name
   return $ mkName a (view name)
 
-defineName :: ( MonadReader Location m
-             , MonadState S m
-             , MonadLogger Message m
-             ) => Name -> m ()
+defineName :: ( Pretty a
+              , MonadReader a m
+              , MonadState S m
+              , MonadWriter Msgs m
+              ) => Name -> m ()
 defineName x = do
   S {..} <- get
-  maybe nothing just (Map.lookup (view x) scope)
+  maybe nothing just $ Map.lookup (view x) scope
   where
     nothing =
       insertName x
-    just _ =
-      logError $ AlreadyDefined $ view x
+    just _ = do
+      a <- ask
+      tell $ Msg.singleton $ mkErrorMsg a $ AlreadyDefined $ view x
 
 insertName :: MonadState S m => Name -> m ()
 insertName x = do
   s@S {..} <- get
   put s { scope = Map.insert (view x) (ident x) scope }
 
-lookupIdent :: ( MonadReader Location m
-              , MonadState S m
-              , MonadLogger Message m
-              ) => Name -> m Ident
+lookupIdent :: ( Pretty a
+               , MonadReader a m
+               , MonadState S m
+               , MonadWriter Msgs m
+               ) => Name -> m Ident
 lookupIdent x = do
   S {..} <- get
   maybe nothing just $ lookupIdent' (view x) (scope : scopes)
   where
     nothing = do
-      logError $ NotFound (view x)
+      a <- ask
+      tell $ Msg.singleton $ mkErrorMsg a $ NotFound $ view x
       return $ ident x
     just =
       return

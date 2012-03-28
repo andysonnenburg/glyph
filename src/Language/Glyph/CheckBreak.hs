@@ -1,8 +1,7 @@
 {-# LANGUAGE
     DeriveDataTypeable
   , FlexibleContexts
-  , ScopedTypeVariables
-  , ViewPatterns #-}
+  , ScopedTypeVariables #-}
 module Language.Glyph.CheckBreak
        ( checkBreak
        ) where
@@ -10,44 +9,46 @@ module Language.Glyph.CheckBreak
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
+import Control.Monad.Writer
 
 import Data.Generics
 
-import Language.Glyph.Location
-import Language.Glyph.Logger
-import Language.Glyph.Message
+import Language.Glyph.Msg
+import qualified Language.Glyph.Msg as Msg
 import Language.Glyph.Syntax
 
-checkBreak :: forall a b m .
-             ( Data a
-             , HasLocation a
-             , MonadLogger Message m
-             ) => ([Stmt a], b) -> m ([Stmt a], b)
-checkBreak (stmts, symtab) = do
-  checkBreak' stmts
-  return (stmts, symtab)
+import Text.PrettyPrint.Free
+
+checkBreak :: forall a m .
+              ( Data a
+              , Pretty a
+              , MonadWriter Msgs m
+              ) => [Stmt a] -> m ()
+checkBreak = checkBreak'
   where
     checkBreak' = runReaderT' . query
 
-    query :: Data c => c -> ReaderT Bool m ()
-    query = everythingBut (>>)
-            ((return (), False) `mkQ`
-             queryStmt `extQ`
-             queryStmtView `extQ`
-             queryExprView)
+    query :: forall a . Data a => a -> ReaderT Bool m ()
+    query =
+      everythingBut (>>)
+      ((return (), False) `mkQ`
+       queryStmt `extQ`
+       queryStmtView `extQ`
+       queryExprView)
 
     queryStmt :: Stmt a -> (ReaderT Bool m (), Bool)
-    queryStmt x@(view -> BreakS) = (m, True)
+    queryStmt (Stmt a BreakS) = (m, True)
       where
         m = do
           illegalBreak <- ask
           when illegalBreak $
-            runReaderT (logError IllegalBreak) (location x)
+            tell $ Msg.singleton $ mkErrorMsg a IllegalBreak
     queryStmt _ = (return (), False)
 
     queryStmtView :: StmtView a -> (ReaderT Bool m (), Bool)
-    queryStmtView (FunDeclS _ _ stmt) =
-      (local (const True) $ query stmt, True)
+    queryStmtView (FunDeclS _ _ stmt) = (m, True)
+      where
+        m = local (const True) $ query stmt
     queryStmtView (WhileS expr stmt) = (m, True)
       where
         m = do
@@ -58,14 +59,12 @@ checkBreak (stmts, symtab) = do
         m = do
           query stmt1
           local (const True) $ query stmt2
-    queryStmtView _ =
-      (return (), False)
+    queryStmtView _ = (return (), False)
 
     queryExprView :: ExprView a -> (ReaderT Bool m (), Bool)
     queryExprView (FunE _ _ stmt) =
       (local (const True) $ query stmt, True)
-    queryExprView _ =
-      (return (), False)
+    queryExprView _ = (return (), False)
 
     runReaderT' = flip runReaderT True
 
@@ -75,11 +74,20 @@ data CheckBreakException
   | NoMsgError deriving Typeable
 
 instance Show CheckBreakException where
-  show x =
-    case x of
-      IllegalBreak -> "illegal break statement"
-      StrMsgError s -> s
-      NoMsgError -> "internal error"
+  show = show . pretty
+
+instance Pretty CheckBreakException where
+  pretty = go
+    where
+      go IllegalBreak =
+        text "illegal" </>
+        text "break" </>
+        text "statement"
+      go (StrMsgError s) =
+        text s
+      go NoMsgError =
+        text "internal" </>
+        text "error"
 
 instance Exception CheckBreakException
 

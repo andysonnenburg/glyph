@@ -1,4 +1,7 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE
+    FlexibleContexts
+  , PatternGuards
+  , TypeOperators #-}
 module Language.Glyph.AddExtraSet
        ( addExtraSet
        ) where
@@ -7,63 +10,72 @@ import Control.Monad.Writer
 
 import Data.Graph hiding (Node, scc, vertices)
 
-import Language.Glyph.Annotation.CallSet hiding (callSet)
-import qualified Language.Glyph.Annotation.CallSet as Annotation
-import Language.Glyph.Annotation.ExtraSet hiding (extraSet)
-import Language.Glyph.Annotation.FreeVars hiding (freeVars)
-import qualified Language.Glyph.Annotation.FreeVars as Annotation
-import Language.Glyph.Annotation.Sort
 import Language.Glyph.Ident
-import Language.Glyph.IdentMap (IdentMap, (!), intersectionWith')
+import Language.Glyph.IdentMap (IdentMap, (!))
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.IdentSet
 import qualified Language.Glyph.IdentSet as IdentSet
+import Language.Glyph.Record hiding (Sort, Symtab)
+import qualified Language.Glyph.Record as Record
+import Language.Glyph.Sort
 
-addExtraSet :: ( HasSort sym
-              , HasFreeVars sym
-              , HasCallSet sym
-              , Monad m
-              ) => (a, IdentMap sym) -> m (a, IdentMap (Annotated ExtraSet sym))
-addExtraSet (stmts, symtab) =
-  return (stmts, intersectionWith' (flip withExtraSet) mempty symtab symtab')
+type Symtab sym = IdentMap (Record sym)
+type Symtab' sym = IdentMap (Record ('(ExtraSet, IdentSet) ': sym))
+
+addExtraSet :: ( Select Record.Sort Sort sym
+               , Select FreeVars IdentSet sym
+               , Select CallSet IdentSet sym
+               , Select Record.Symtab (Symtab sym) fields
+               , Remove Record.Symtab fields fields'
+               , Monad m
+               ) =>
+               Record fields ->
+               m (Record ('(Record.Symtab, Symtab' sym) ': fields'))
+addExtraSet r = return $ symtab #= symtab'' #| (r #- symtab)
   where
-    symtab' = execWriter . tellExtraSets . reverse $ nodes
+    symtab' = r#.symtab
+    symtab'' =
+      IdentMap.intersectionWith'
+      (\ r' x -> extraSet #= x #| r') mempty symtab' extraSets
+    extraSets = execWriter . tellExtraSets . reverse $ nodes
     nodes = map (flattenNodes . flattenSCC) scc
     scc = stronglyConnCompR callGraph
-    callGraph = map mkEdge . filter isFun . IdentMap.toList $ symtab
+    callGraph = map mkEdge . filter isFun . IdentMap.toList $ symtab'
       where
-        isFun (_, sym) = sort sym == Fun
-        mkEdge (x, sym) = (freeVars, x, callSet)
+        isFun (_, sym)
+          | Fun <- sym#.sort = True
+          | otherwise = False
+        mkEdge (x, sym) = (freeVars', x, callSet')
           where
-            freeVars = Annotation.freeVars sym
-            callSet = IdentSet.toList $ Annotation.callSet sym
+            freeVars' = sym#.freeVars
+            callSet' = IdentSet.toList $ sym#.callSet
 
 tellExtraSets :: MonadWriter (IdentMap IdentSet) m => [Node] -> m ()
 tellExtraSets [] =
   return ()
-tellExtraSets ((freeVars, xs, callSet):nodes) = do
+tellExtraSets ((freeVars', xs, callSet'):nodes) = do
   extraSets <- listen' $ tellExtraSets nodes
-  let extraSet = freeVars <> mconcat (map (extraSets !) callSet)
+  let extraSet' = freeVars' <> mconcat (map (extraSets !) callSet')
   forM_ xs $ \ x ->
-    tell $ IdentMap.singleton x extraSet
+    tell $ IdentMap.singleton x extraSet'
 
 type Node = (IdentSet, [Ident], [Ident])
 
 flattenNodes :: [(IdentSet, Ident, [Ident])] -> Node
-flattenNodes nodes = (freeVars, xs, callSet')
+flattenNodes nodes = (freeVars', xs, callSet'')
   where
-    Node' freeVars xs callSet = mconcat . map mkNode' $ nodes
-    callSet' = IdentSet.toList $ callSet \\ IdentSet.fromList xs
+    Node' freeVars' xs callSet' = mconcat . map mkNode' $ nodes
+    callSet'' = IdentSet.toList $ callSet' \\ IdentSet.fromList xs
 
 data Node' = Node' IdentSet [Ident] IdentSet
 
 mkNode' :: (IdentSet, Ident, [Ident]) -> Node'
-mkNode' (freeVars, x, callSet) = Node' freeVars [x] (IdentSet.fromList callSet)
+mkNode' (freeVars', x, callSet') = Node' freeVars' [x] (IdentSet.fromList callSet')
 
 instance Monoid Node' where
   mempty = Node' mempty mempty mempty
-  Node' freeVars xs callSet `mappend` Node' freeVars' xs' callSet' =
-    Node' (freeVars <> freeVars') (xs <> xs') (callSet <> callSet')
+  Node' freeVars' xs callSet' `mappend` Node' freeVars'' xs' callSet'' =
+    Node' (freeVars' <> freeVars'') (xs <> xs') (callSet' <> callSet'')
 
 listen' :: MonadWriter w m => m a -> m w
 listen' = liftM snd . listen

@@ -1,24 +1,24 @@
 type Action m
-  = Location ->
+  = Loc ->
     ByteString ->
     Int ->
-    ParserT m (Annotated Location Token) 
+    ParserT m Token
 
-lex :: MonadError ParseException m => ParserT m (Annotated Location Token)
+lex :: MonadError ParseException m => ParserT m Token
 lex = do
   s@(S {..}) <- getInput
   case alexScan s 0 of
     AlexEOF ->
-      return $ Annotated (Location position position) EOF
+      return $ Token (Loc pos pos) EOF
     
-    AlexError (S { position = position' }) ->
-      throwError $ LexicalError (Location position position')
+    AlexError (S { pos = pos' }) ->
+      throwError $ LexicalError (Loc pos pos')
     
     AlexSkip s' _ -> do
       putInput s'
       lex
     
-    AlexToken s'@(S position' _) n m -> do
+    AlexToken s'@(S pos' _) n m -> do
       putInput s'
-      let l = Location position position'
+      let l = Loc pos pos'
       m l buffer n

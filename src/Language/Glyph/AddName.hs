@@ -1,30 +1,39 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts, TypeOperators #-}
 module Language.Glyph.AddName
        ( addName
        ) where
 
-import Control.Applicative
-
 import Data.Generics
 import Data.Monoid
 
-import Language.Glyph.Annotation.Location
-import Language.Glyph.Annotation.Name
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
+import Language.Glyph.Record hiding (Symtab)
+import qualified Language.Glyph.Record as Record
 import Language.Glyph.Syntax hiding (Name)
 
-addName :: ( Data a
-          , Monad m
-          ) => ([Stmt a], IdentMap b) -> m ([Stmt a], IdentMap (Annotated Name b))
-addName (stmts, symtab) = do
-  let symtab' = name' stmts
-  return (stmts,
-          IdentMap.intersectionWith (flip withName) symtab symtab' <>
-          (withName Nothing <$> symtab))
+type Symtab sym = IdentMap (Record sym)
+type Symtab' sym = IdentMap (Record ('(Name, Maybe NameView) ': sym))
 
-name' :: Data a => a -> IdentMap (Maybe NameView)
-name' =
+addName :: ( Data a
+           , Select Stmts [Stmt a] fields
+           , Select Record.Symtab (Symtab sym) fields
+           , Remove Record.Symtab fields fields'
+           , Monad m
+           ) => 
+           Record fields ->
+           m (Record ('(Record.Symtab, Symtab' sym) ': fields'))
+addName r = return $ symtab #= symtab'' #| (r #- symtab)
+  where
+    stmts' = r#.stmts
+    symtab' = r#.symtab
+    symtab'' =
+      IdentMap.intersectionWith'
+      (\ r' x -> name #= x #| r') mempty symtab' names'
+    names' = names stmts'
+
+names :: Data a => a -> IdentMap (Maybe NameView)
+names =
   everything (<>)
   (mempty `mkQ` queryName)
   where

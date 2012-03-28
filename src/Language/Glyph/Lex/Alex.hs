@@ -18,7 +18,7 @@ import Data.Text (Text)
 import qualified Data.Text.Encoding as Text
 import Data.Word
 
-import Language.Glyph.Annotation.Location
+import Language.Glyph.Loc
 import Language.Glyph.Parser.Internal
 
 type AlexInput = S
@@ -26,8 +26,8 @@ type AlexInput = S
 alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
 alexGetByte (S {..})
   | Just (x, xs) <- ByteString.uncons buffer =
-    let position' = seekPosition position (w2c x)
-    in Just (x, S { position = position', buffer = xs })
+    let pos' = seekPos pos (w2c x)
+    in Just (x, S { pos = pos', buffer = xs })
   | otherwise = Nothing
 
 alexInputPrevChar :: AlexInput -> Char
@@ -44,7 +44,7 @@ fromLazyByteString =
   where
     fromLeft e = do
       S {..} <- get
-      throwError $ UnicodeError (Location position position) e
+      throwError $ UnicodeError (Loc pos pos) e
     fromRight =
       return
 

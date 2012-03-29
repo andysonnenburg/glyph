@@ -1,7 +1,9 @@
 {-# LANGUAGE
-    DeriveDataTypeable
+    DataKinds
+  , DeriveDataTypeable
   , RecordWildCards
   , ScopedTypeVariables
+  , TypeOperators
   , ViewPatterns #-}
 {-# OPTIONS_GHC -fno-cse #-}
 module Main (main) where
@@ -61,7 +63,7 @@ main = do
 glyph :: Glyph -> IO ()
 glyph Glyph {..} =
   ByteString.getContents >>=
-  runErrorT . runLoggerT . runUniqueSupplyT .
+  runLoggerT . runUniqueSupplyT .
   
   -- Parse
   (runErrorT . parse >=>

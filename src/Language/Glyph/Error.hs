@@ -1,7 +1,8 @@
 {-# LANGUAGE
     FlexibleInstances
+  , GeneralizedNewtypeDeriving
   , MultiParamTypeClasses
-  , PatternGuards
+  , StandaloneDeriving
   , UndecidableInstances #-}
 module Language.Glyph.Error
        ( ErrorT
@@ -13,64 +14,24 @@ import Compiler.Hoopl
 import Control.Applicative
 import Control.Exception
 import Control.Monad.Error hiding (ErrorT (..))
+import qualified Control.Monad.Error as Error
 
-import Prelude hiding (catch)
+newtype ErrorT e m a
+  = ErrorT { unErrorT :: Error.ErrorT e m a
+           } deriving ( Functor
+                      , Applicative
+                      , Monad
+                      , MonadIO
+                      , MonadTrans
+                      )
 
-newtype ErrorT s m a
-  = ErrorT { unErrorT :: m (Either SomeException a)
-           }
+deriving instance (Error e, Monad m) => MonadError e (ErrorT e m)
 
-runErrorT :: MonadIO m => ErrorT s m a -> m a
-runErrorT m = do
-  a <- unErrorT m
-  case a of
-    Left l -> liftIO $ throwIO l
-    Right r -> return r
-    
+runErrorT :: Exception e => MonadIO m => ErrorT e m a -> m a
+runErrorT =
+  either (liftIO . throwIO) return <=<
+  Error.runErrorT .
+  unErrorT
 
-instance Functor m => Functor (ErrorT s m) where
-  fmap f = ErrorT . fmap (fmap f) . unErrorT
-
-instance (Functor m, Monad m) => Applicative (ErrorT s m) where
-  pure = ErrorT . return . Right
-  f <*> v = ErrorT $ do
-    mf <- unErrorT f
-    case mf of
-      Left e ->
-        return (Left e)
-      Right k -> do
-        mv <- unErrorT v
-        case mv of 
-          Left e ->
-            return (Left e)
-          Right a ->
-            return . Right . k $ a
-
-instance Monad m => Monad (ErrorT s m) where
-  return = ErrorT . return . Right
-  m >>= k = ErrorT $ do
-    a <- unErrorT m
-    case a of
-      Left l -> return (Left l)
-      Right r -> unErrorT (k r)
-  fail = ErrorT . return . Left . toException . userError
-
-instance MonadTrans (ErrorT s) where
-  lift m = ErrorT $ do
-    a <- m
-    return (Right a)
-
-instance MonadIO m => MonadIO (ErrorT s m) where
-  liftIO = lift . liftIO
-
-instance (Exception e, Monad m) => MonadError e (ErrorT s m) where
-  throwError = ErrorT . return . Left . toException
-  m `catchError` h = ErrorT $ do
-    a <- unErrorT m
-    case a of
-      Left l | Just e <- fromException l -> unErrorT (h e)
-      Left l -> return (Left l)
-      Right r -> return (Right r)
-
-instance UniqueMonad m => UniqueMonad (ErrorT s m) where
+instance (Error e, UniqueMonad m) => UniqueMonad (ErrorT e m) where
   freshUnique = lift freshUnique

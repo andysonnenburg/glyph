@@ -35,10 +35,23 @@ import Language.Glyph.View
 
 import Text.PrettyPrint.Free hiding (encloseSep, tupled)
 
+class Pretty a => PrettyPrec a where
+  prettyPrec :: Int -> a -> Doc e
+  prettyPrec _ x = pretty x
+
+prettyDefault :: PrettyPrec a => a -> Doc e
+prettyDefault = prettyPrec 0
+
+prettyParen :: Bool -> Doc e -> Doc e
+prettyParen b p = if b then parens p else p
+
 data Exp a = Exp a (ExpView a) deriving (Typeable, Data, Functor)
 
 instance Pretty (Exp a) where
-  pretty = pretty . view
+  pretty = prettyDefault
+
+instance PrettyPrec (Exp a) where
+  prettyPrec p = prettyPrec p . view
 
 instance Show (Exp a) where
   show = show . pretty
@@ -62,18 +75,25 @@ data ExpView a
   | CallCC deriving (Typeable, Data, Functor)
 
 instance Pretty (ExpView a) where
-  pretty = go
+  pretty = prettyDefault
+
+instance PrettyPrec (ExpView a) where
+  prettyPrec p = go
     where
       go (VarE x) =
         pretty x
       go (AbsE x e) =
-        char '\\' <> pretty x <> char '.' <+> hang 2 (pretty e)
+        nest 2 (char '\\' <> pretty x <> char '.'
+                `above`
+                pretty e)
       go (AppE (view -> AppE (view -> Then) e1) e2) =
-        pretty e1 <+> text ">>"
+        prettyPrec 1 e1 <+> text ">>"
         `above`
-        pretty e2
+        prettyPrec 1 e2
       go (AppE e1 e2) =
-        pretty e1 </> hang 2 (pretty e2)
+        prettyPrec 10 e1
+        `above`
+        prettyPrec 10 e2
       go (LetE x e1 e2) =
         text "let" </> pretty x </> char '=' </> pretty e1 </> text "in" </> pretty e2
       go (LitE lit) =

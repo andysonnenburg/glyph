@@ -97,29 +97,29 @@ inferExp = go
       let sigma = gamma ! x
       tau <- instantiate sigma
       return (mempty, tau)
-    w gamma (AbsE p e) = do
-      (map (fmap mono) -> gamma', tau1) <- freshPat p
-      (s1, tau2) <- inferExp (deletePat p gamma <> fromList gamma') e
-      return (s1 $\ tau1, (s1 $$ tau1) :->: tau2)
+    w gamma (AbsE x e) = do
+      beta <- fresh
+      (s1, tau1) <- inferExp (delete x gamma <> singleton x (mono beta)) e
+      return (s1, (s1 $$ beta) :->: tau1)
     w gamma (AppE e1 e2) = do
       (s1, tau1) <- inferExp gamma e1
       (s2, tau2) <- inferExp (s1 $$ gamma) e2
       beta <- fresh
       s3 <- mgu (s2 $$ tau1) (tau2 :->: beta)
-      return ((s3 $. s2 $. s1) $| typeVars gamma, s3 $$ beta)
-    w gamma (LetE p e1 e2) = do
-      (gamma', beta) <- freshPat p
+      return (s3 $. s2 $. s1, s3 $$ beta)
+    w gamma (LetE x e1 e2) = do
       (s1, tau1) <- inferExp gamma e1
-      s1' <- liftM ($. s1) $ mgu (s1 $$ beta) tau1
-      gamma'' <- forM gamma' $ \ (x, tau) -> do
-        sigma <- generalize (s1' $$ gamma) (s1' $$ tau)
-        return (x, sigma)
-      (s2, tau2) <- inferExp ((s1' $$ deletePat p gamma) <> fromList gamma'') e2
-      return (s2 $. s1' $| typeVars gamma, s2 $$ tau2)
+      sigma <- generalize (s1 $$ gamma) tau1
+      (s2, tau2) <- inferExp ((s1 $$ delete x gamma) <> singleton x sigma) e2
+      return (s2 $. s1, tau2)
     w gamma (LitE lit) =
       inferLit gamma lit
-    w gamma (TupleE es) =
-      tuple gamma es
+    w _gamma (MkTuple x) = do
+      alphas <- replicateM x fresh
+      return (mempty, foldr (:->:) (Tuple alphas) alphas)
+    w _gamma (Select x y) = do
+      alphas <- replicateM y fresh
+      return (mempty, Tuple alphas :->: (alphas !! x))
     w _gamma Undefined = do
       alpha <- fresh
       return (mempty, alpha)
@@ -143,14 +143,6 @@ inferExp = go
       a <- fresh
       b <- fresh
       return (mempty, ((a :->: Cont b) :->: Cont a) :->: Cont a)
-    freshPat (VarP x) = do
-      beta <- fresh
-      return ([(x, beta)], beta)
-    freshPat (TupleP xs) = do
-      gamma <- forM xs $ \ x -> do
-        beta <- fresh
-        return (x, beta)
-      return (gamma, Tuple $ map snd gamma)
 
 inferLit :: Monad m => TypeEnvironment -> Lit -> m (Substitution, Type)
 inferLit _gamma x =
@@ -161,21 +153,6 @@ inferLit _gamma x =
      DoubleL _ -> Double
      BoolL _ -> Bool
      VoidL -> Void)
-
-tuple :: ( Pretty a
-        , MonadWriter Msgs m
-        , UniqueMonad m
-        ) => TypeEnvironment -> [Exp a] -> m (Substitution, Type)
-tuple gamma es = do
-  (s, reverse -> taus) <- go (reverse es)
-  return (s, Tuple taus)
-  where
-    go [] =
-      return (mempty, [])
-    go (x : xs) = do
-      (s1, taus) <- go xs
-      (s2, tau) <- inferExp (s1 $$ gamma) x
-      return (s2 $. s1, tau : taus)
 
 fresh :: UniqueMonad m => m Type
 fresh = liftM Type.Var freshIdent
@@ -191,10 +168,6 @@ generalize :: Monad m => TypeEnvironment -> Type -> m TypeScheme
 generalize gamma tau = return $ poly alpha tau
   where
     alpha = IdentSet.toList $ typeVars tau \\ typeVars gamma
-
-deletePat :: Pat -> TypeEnvironment -> TypeEnvironment
-deletePat (VarP x) = delete x
-deletePat (TupleP x) = deleteList x
 
 deleteList :: [Ident] -> IdentMap a -> IdentMap a
 deleteList x gamma = foldr delete gamma x
@@ -287,14 +260,14 @@ mgu tau1 tau2 =
   case (tau1, tau2) of
     (Type.Var a, Type.Var b) | a == b ->
       return mempty
-    (Type.Var a, _) ->
-      if IdentSet.member a (typeVars tau2)
+    (Type.Var x, _) ->
+      if IdentSet.member x (typeVars tau2)
       then do
         a <- ask
         tell $ Msg.singleton $ mkErrorMsg a $ OccursCheckFailed tau1 tau2
         return mempty
       else
-        return $ Substitution $ singleton a tau2
+        return $ Substitution $ singleton x tau2
     (_, Type.Var _) ->
       mgu tau2 tau1
     (x :->: x', y :->: y') -> do

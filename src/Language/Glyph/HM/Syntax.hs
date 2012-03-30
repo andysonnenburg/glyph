@@ -6,14 +6,15 @@
 module Language.Glyph.HM.Syntax
        ( Exp (..)
        , ExpView (..)
-       , Pat (..)
        , Lit (..)
        , varE
        , appE
        , absE
        , letE
        , litE
+       , mkTuple
        , tupleE
+       , select
        , undefined'
        , asTypeOf'
        , fix'
@@ -21,15 +22,12 @@ module Language.Glyph.HM.Syntax
        , callCC
        , return'
        , then'
-       , varP
-       , tupleP
        ) where
 
 import Control.Monad
 import Control.Monad.Reader
 
 import Data.Data
-import Data.Foldable (Foldable, toList)
 
 import Language.Glyph.Ident
 import Language.Glyph.Syntax (Lit (..))
@@ -47,14 +45,14 @@ instance Show (Exp a) where
 
 data ExpView a
   = VarE Ident
-  | AbsE Pat (Exp a)
+  | AbsE Ident (Exp a)
   | AppE (Exp a) (Exp a)
-  | LetE Pat (Exp a) (Exp a)
+  | LetE Ident (Exp a) (Exp a)
 
   | LitE Lit
 
-  | TupleE [Exp a]
-
+  | MkTuple Int
+  | Select Int Int
   | Undefined
   | AsTypeOf
   | Fix
@@ -68,20 +66,22 @@ instance Pretty (ExpView a) where
     where
       go (VarE x) =
         pretty x
-      go (AbsE p e) =
-        char '\\' <> pretty p <> char '.' <+> hang 2 (pretty e)
+      go (AbsE x e) =
+        char '\\' <> pretty x <> char '.' <+> hang 2 (pretty e)
       go (AppE (view -> AppE (view -> Then) e1) e2) =
         pretty e1 <+> text ">>"
         `above`
         pretty e2
       go (AppE e1 e2) =
         pretty e1 </> hang 2 (pretty e2)
-      go (LetE p e1 e2) =
-        text "let" </> pretty p </> char '=' </> pretty e1 </> text "in" </> pretty e2
+      go (LetE x e1 e2) =
+        text "let" </> pretty x </> char '=' </> pretty e1 </> text "in" </> pretty e2
       go (LitE lit) =
         pretty lit
-      go (TupleE x) =
-        tupled (map pretty x)
+      go (MkTuple x) =
+        text "mkTuple" <> char '_' <> pretty x
+      go (Select a b) =
+        text "select" <> char '_' <> pretty a <> char '_' <> pretty b
       go Undefined =
         text "undefined"
       go AsTypeOf =
@@ -100,16 +100,6 @@ instance Pretty (ExpView a) where
 instance View (Exp a) (ExpView a) where
   view (Exp _ x) = x
 
-data Pat
-  = VarP Ident
-  | TupleP [Ident] deriving (Show, Typeable, Data)
-
-instance Pretty Pat where
-  pretty = go
-    where
-      go (VarP x) = pretty x
-      go (TupleP x) = tupled (map pretty x)
-
 varE :: MonadReader a m => Ident -> m (Exp a)
 varE x = do
   a <- ask
@@ -122,13 +112,13 @@ appE f x = do
   x' <- x
   return $ Exp a $ AppE f' x'
 
-absE :: MonadReader a m => Pat -> m (Exp a) -> m (Exp a)
+absE :: MonadReader a m => Ident -> m (Exp a) -> m (Exp a)
 absE x e = do
   a <- ask
   e' <- e
   return $ Exp a $ AbsE x e'
 
-letE :: MonadReader a m => Pat -> m (Exp a) -> m (Exp a) -> m (Exp a)
+letE :: MonadReader a m => Ident -> m (Exp a) -> m (Exp a) -> m (Exp a)
 letE x e e' = do
   a <- ask
   v <- liftM2 (LetE x) e e'
@@ -139,11 +129,21 @@ litE lit = do
   a <- ask
   return $ Exp a $ LitE lit
 
-tupleE :: MonadReader a m => [m (Exp a)] -> m (Exp a)
-tupleE x = do
+mkTuple :: MonadReader a m => Int -> m (Exp a)
+mkTuple x = do
   a <- ask
-  x' <- sequence x
-  return $ Exp a $ TupleE x'
+  return $ Exp a $ MkTuple x
+
+tupleE :: MonadReader a m => [m (Exp a)] -> m (Exp a)
+tupleE es = do
+  foldl appE (mkTuple l) es
+  where
+    l = length es
+
+select :: MonadReader a m => Int -> Int -> m (Exp a)
+select x y = do
+  a <- ask
+  return $ Exp a $ Select x y
 
 undefined' :: MonadReader a m => m (Exp a)
 undefined' = do
@@ -179,19 +179,3 @@ callCC :: MonadReader a m => m (Exp a) -> m (Exp a)
 callCC f = do
   a <- ask
   appE (return $ Exp a CallCC) f
-
-varP :: Ident -> Pat
-varP = VarP
-
-tupleP :: [Ident] -> Pat
-tupleP = TupleP
-
-tupled :: Foldable f => f (Doc e) -> Doc e
-tupled = encloseSep lparen rparen (comma <> space)
-
-encloseSep :: Foldable f => Doc e -> Doc e -> Doc e -> f (Doc e) -> Doc e
-encloseSep left right sp ds0 =
-  case toList ds0 of
-    [] -> left <> right
-    [d] -> left <> d <> right
-    ds -> left <> align (cat (zipWith (<>) (init ds) (repeat sp) ++ [last ds <> right]))

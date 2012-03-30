@@ -16,10 +16,10 @@ import Data.Graph (flattenSCC, stronglyConnCompR)
 import Data.Monoid
 
 import Language.Glyph.Hoopl
-import Language.Glyph.HM.Syntax (Exp, Pat, tupleP, varP)
+import Language.Glyph.HM.Syntax (Exp)
 import qualified Language.Glyph.HM.Syntax as HM
 
-import Language.Glyph.Record hiding (Symtab)
+import Language.Glyph.Record hiding (Symtab, select)
 import qualified Language.Glyph.Record as Record
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
@@ -52,7 +52,7 @@ toExp m (toList -> xs) = do
   cc <- freshIdent
   let r = initR (foldr f mempty xs) cc m
   runReaderT' r $ runCont $ callCC $
-    absE (varP cc) (insnsToExp xs)
+    absE cc (insnsToExp xs)
     where
       f (SomeNode (Stmt a _)) = mappend a
       f (SomeNode (Expr a _ _ _)) = mappend a
@@ -61,11 +61,13 @@ toExp m (toList -> xs) = do
 funToExp :: ( Select CallSet IdentSet sym
             , UniqueMonad m
             ) => [Ident] -> Graph (Insn a) O C -> T a sym m (Exp a)
-funToExp x (toList -> xs) =
-  absE (tupleP x) $
+funToExp ps (toList -> xs) = do
+  x <- freshIdent
+  absE x $
+    selectList x ps $
     runCont $ callCC $ do
       cc <- freshIdent
-      absE (varP cc) (localCC cc $ insnsToExp xs)
+      absE cc (localCC cc $ insnsToExp xs)
 
 insnsToExp :: ( Select CallSet IdentSet sym
               , UniqueMonad m
@@ -97,7 +99,7 @@ insnsToExp xs = vars (funs (mapM_' go xs))
           where
             f x e = do
               a <- askA
-              appE (absE (varP x) (localA a e)) undefined'
+              appE (absE x (localA a e)) undefined'
 
     funs =
       foldr' let' .
@@ -112,7 +114,11 @@ insnsToExp xs = vars (funs (mapM_' go xs))
         toLet xs' = (map snd' xs', map fst' xs')
         fst' (x, _, _) = x
         snd' (_, x, _) = x
-        let' (x, e) = letE (tupleP x) (fix' (absE (tupleP x) (tupleE e)))
+        let' (xs', e1) e2 = do
+          x <- freshIdent
+          y <- freshIdent
+          letE x (fix' (absE y $ selectList y xs' $ (tupleE e1))) $
+            selectList x xs' e2
 
 callGraph :: forall a sym m .
              (Select CallSet IdentSet sym, UniqueMonad m) =>
@@ -189,11 +195,11 @@ varE = liftR0 . HM.varE
 appE :: Monad m => T a sym m (Exp a) -> T a sym m (Exp a) -> T a sym m (Exp a)
 appE = liftR2 HM.appE
 
-absE :: Monad m => Pat -> T a sym m (Exp a) -> T a sym m (Exp a)
-absE pat = liftR1 $ HM.absE pat
+absE :: Monad m => Ident -> T a sym m (Exp a) -> T a sym m (Exp a)
+absE x = liftR1 $ HM.absE x
 
-letE :: Monad m => Pat -> T a sym m (Exp a) -> T a sym m (Exp a) -> T a sym m (Exp a)
-letE pat = liftR2 $ HM.letE pat
+letE :: Monad m => Ident -> T a sym m (Exp a) -> T a sym m (Exp a) -> T a sym m (Exp a)
+letE x = liftR2 $ HM.letE x
 
 litE :: Monad m => Lit -> T a sym m (Exp a)
 litE = liftR0 . HM.litE
@@ -202,6 +208,20 @@ tupleE :: Monad m => [T a sym m (Exp a)] -> T a sym m (Exp a)
 tupleE xs = do
   r <- ask
   liftR0 . HM.tupleE . map (lowerR r) $ xs
+
+selectList :: UniqueMonad m => Ident -> [Ident] -> T a sym m (Exp a) -> T a sym m (Exp a)
+selectList x = go
+  where
+    go [] e = do
+      y <- freshIdent
+      letE y (varE x `asTypeOf'` tupleE []) e
+    go ys e = snd (foldr f (0, id) ys) e
+      where
+        f y (i, f') = (i + 1, letE y (appE (select i l) (varE x)) . f')
+        l = length ys
+
+select :: Monad m => Int -> Int -> T a sym m (Exp a)
+select i l = liftR0 $ HM.select i l
 
 undefined' :: Monad m => T a sym m (Exp a)
 undefined' = liftR0 HM.undefined'

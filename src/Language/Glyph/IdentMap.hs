@@ -35,6 +35,7 @@ import Data.Foldable hiding (toList)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.Monoid
+import Data.Semigroup
 import Data.Traversable
 
 import Language.Glyph.Ident.Internal
@@ -48,6 +49,7 @@ import Prelude hiding (lookup, null)
 newtype IdentMap v
   = IdentMap { unIdentMap :: IntMap v
              } deriving ( Show
+                        , Semigroup
                         , Monoid
                         , Functor
                         , Foldable

@@ -6,10 +6,13 @@
 module Language.Glyph.IR.Syntax
        ( module X
        , Insn (..)
+       , WrappedInsn (..)
        , Stmt (..)
+       , WrappedStmt (..)
        , Expr (..)
        , ExprIdent
        , Successor
+       , mapGraph'
        , prettyGraph
        ) where
 
@@ -41,6 +44,24 @@ instance Show (Insn a e x) where
 
 deriving instance Typeable3 Insn
 
+mapGraph' :: (a -> b) -> Graph (Insn a) e x -> Graph (Insn b) e x
+mapGraph' f = mapGraph (unwrapInsn . fmap f . WrapInsn)
+
+
+newtype WrappedInsn e x a
+  = WrapInsn { unwrapInsn :: Insn a e x
+             }
+
+instance Functor (WrappedInsn e x) where
+  fmap (f :: a -> b) = WrapInsn . go . unwrapInsn
+    where
+      go :: forall e x . Insn a e x -> Insn b e x
+      go (Stmt a x) = Stmt (f a) (unwrapStmt . fmap f . WrapStmt $ x)
+      go (Expr a x expr successors') = Expr (f a) x (fmap f expr) successors'
+      go (Label label) = Label label
+      go (Catch x label) = Catch x label
+      go ReturnVoid = ReturnVoid
+
 data Stmt a x where
   ExprS :: ExprIdent -> MaybeC x (Label, Label) -> Stmt a x
   VarDeclS :: Name -> Stmt a O
@@ -52,6 +73,21 @@ data Stmt a x where
 
 deriving instance Typeable2 Stmt
 
+newtype WrappedStmt x a
+  = WrapStmt { unwrapStmt :: Stmt a x
+             }
+
+instance Functor (WrappedStmt x) where
+  fmap f = WrapStmt . go . unwrapStmt
+    where
+      go (ExprS x successors') = ExprS x successors'
+      go (VarDeclS name) = VarDeclS name
+      go (FunDeclS name params graph) = FunDeclS name params (mapGraph' f graph)
+      go (ReturnS x successor) = ReturnS x successor
+      go (GotoS label successor) = GotoS label successor
+      go (IfS x then' else' successor) = IfS x then' else' successor
+      go (ThrowS x successor) = ThrowS x successor
+
 data Expr a where
   LitE :: Lit -> Expr a
   NotE :: ExprIdent -> Expr a
@@ -61,6 +97,16 @@ data Expr a where
   AssignE :: Name -> ExprIdent -> Expr a
 
 deriving instance Typeable1 Expr
+
+instance Functor Expr where
+  fmap f = go
+    where
+      go (LitE lit) = LitE lit
+      go (NotE x) = NotE x
+      go (VarE name) = VarE name
+      go (FunE x params graph) = FunE x params (mapGraph' f graph)
+      go (ApplyE x xs) = ApplyE x xs
+      go (AssignE name x) = AssignE name x
 
 type ExprIdent = Ident
 

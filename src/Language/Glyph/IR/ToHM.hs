@@ -19,18 +19,21 @@ import Language.Glyph.Hoopl
 import Language.Glyph.HM.Syntax (Exp, Pat, tupleP, varP)
 import qualified Language.Glyph.HM.Syntax as HM
 
-import Language.Glyph.Record hiding (Symtab, insns, symtab)
+import Language.Glyph.Record hiding (Symtab)
+import qualified Language.Glyph.Record as Record
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
 import Language.Glyph.IdentSet (IdentSet)
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.IR.Syntax
 
-toHM :: ( Monoid a
+toHM :: ( Monoid a 
         , Select CallSet IdentSet sym
+        , Select Record.Symtab (Symtab sym) fields
+        , Select Insns (Graph (Insn a) O C) fields
         , UniqueMonad m
-        ) => Symtab sym -> Graph (Insn a) O C -> m (Exp a)
-toHM = toExp
+        ) => Record fields -> m (Exp a)
+toHM r = toExp (r#.symtab) (r#.insns)
 
 toList :: Graph n e x -> [SomeNode n]
 toList = foldGraphNodesR f []
@@ -45,11 +48,11 @@ toExp :: ( Monoid a
          , Select CallSet IdentSet sym
          , UniqueMonad m
          ) => Symtab sym -> Graph (Insn a) O C -> m (Exp a)
-toExp symtab (toList -> insns) = do
+toExp m (toList -> xs) = do
   cc <- freshIdent
-  let r = initR (foldr f mempty insns) cc symtab
+  let r = initR (foldr f mempty xs) cc m
   runReaderT' r $ runCont $ callCC $
-    absE (varP cc) (insnsToExp insns)
+    absE (varP cc) (insnsToExp xs)
     where
       f (SomeNode (Stmt a _)) = mappend a
       f (SomeNode (Expr a _ _ _)) = mappend a
@@ -58,16 +61,16 @@ toExp symtab (toList -> insns) = do
 funToExp :: ( Select CallSet IdentSet sym
             , UniqueMonad m
             ) => [Ident] -> Graph (Insn a) O C -> T a sym m (Exp a)
-funToExp x (toList -> insns) =
+funToExp x (toList -> xs) =
   absE (tupleP x) $
     runCont $ callCC $ do
       cc <- freshIdent
-      absE (varP cc) (localCC cc $ insnsToExp insns)
+      absE (varP cc) (localCC cc $ insnsToExp xs)
 
 insnsToExp :: ( Select CallSet IdentSet sym
               , UniqueMonad m
               ) => [SomeInsn a] -> T a sym m (Exp a)
-insnsToExp insns = vars (funs (mapM_' go insns))
+insnsToExp xs = vars (funs (mapM_' go xs))
   where
     go (Stmt a stmt) =
       localA a (stmtToExp stmt)
@@ -81,7 +84,7 @@ insnsToExp insns = vars (funs (mapM_' go insns))
       cc <- askCC
       appE (varE cc) (litE VoidL)
 
-    vars = concatMap' var insns
+    vars = concatMap' var xs
       where
         concatMap' f =
           appEndo . mconcat . map (Endo . f)
@@ -99,14 +102,14 @@ insnsToExp insns = vars (funs (mapM_' go insns))
     funs =
       foldr' let' .
       map (toLet . flattenSCC) .
-      stronglyConnCompR <$> callGraph insns
+      stronglyConnCompR <$> callGraph xs
       where
         foldr' f as b = foldr f b as
         infixl 4 <$>
         (f <$> a) b = do
           a' <- a
           f a' b
-        toLet xs = (map snd' xs, map fst' xs)
+        toLet xs' = (map snd' xs', map fst' xs')
         fst' (x, _, _) = x
         snd' (_, x, _) = x
         let' (x, e) = letE (tupleP x) (fix' (absE (tupleP x) (tupleE e)))
@@ -128,8 +131,8 @@ callGraph = concatMap' go'
     fun :: a -> Ident -> [Ident] -> Graph (Insn a) O C ->
            T a sym m [(T a sym m (Exp a), Ident, [Ident])]
     fun a x params graph = do
-      symtab <- askSymtab
-      let xs = IdentSet.toList $ (symtab ! x)#.callSet
+      m <- askSymtab
+      let xs = IdentSet.toList $ (m ! x)#.callSet
       return [(e, x, xs)]
         where
           e = localA a $ funToExp params graph

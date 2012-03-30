@@ -97,7 +97,7 @@ runParserT :: Monad m => ParserT m a -> ByteString -> m a
 runParserT (ParserT m) buffer = evalStateT m initState
   where
     initState =
-      S { pos = Pos 1 1
+      S { pos = initPos
         , buffer
         }
 

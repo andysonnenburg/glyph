@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable, PatternGuards #-}
 module Language.Glyph.Loc
        ( Pos (..)
+       , initPos
        , Loc (..)
        , seekPos
        ) where
@@ -17,6 +18,9 @@ instance Show Pos where
 
 instance Pretty Pos where
   pretty (Pos r c) = pretty r <> char ':' <> pretty c
+
+initPos :: Pos
+initPos = Pos 1 0
 
 data Loc = Loc Pos Pos deriving (Typeable, Data)
 

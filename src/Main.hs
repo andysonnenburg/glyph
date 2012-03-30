@@ -12,7 +12,6 @@ import Control.Monad.Error hiding (ErrorT (..))
 
 import qualified Data.ByteString.Lazy as ByteString
 import Data.Generics
-import Data.Monoid
 import qualified Data.Record as Record
 
 import Language.Glyph.AddCallSet
@@ -26,13 +25,15 @@ import Language.Glyph.CheckFun
 import Language.Glyph.CheckReturn
 -- import Language.Glyph.CheckVar
 import Language.Glyph.Error
--- import Language.Glyph.HM (inferType)
+import Language.Glyph.HM (inferType)
 import qualified Language.Glyph.IR as IR
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
+import Language.Glyph.Loc
 import Language.Glyph.Logger
+import Language.Glyph.Monoid
 import Language.Glyph.Parse
-import Language.Glyph.Record hiding (name)
+import Language.Glyph.Record hiding (Loc, name)
 import Language.Glyph.Rename
 import Language.Glyph.Syntax
 import Language.Glyph.Unique
@@ -129,6 +130,13 @@ glyph Glyph {..} =
        return $ insns #= ir #| r #- stmts) >=>
    
    -- Type check syntax via inference
+   (\ r -> do
+       let r' = insns #= (IR.mapGraph' WrapSemigroup (r#.insns)) #| r
+       hm <- liftM (fmap (unwrapSemigroup memptyLoc)) $ IR.toHM r'
+       when dumpHM $
+         liftIO $ print hm
+       _ <- inferType hm
+       return r) >=>
    
    -- Convert to bytecode representation
    
@@ -151,3 +159,6 @@ idents = everything (<>) (mempty `mkQ` queryExpr `extQ` queryName)
     queryExpr _ = mempty
     queryName (ident -> x) = IdentMap.singleton x Record.empty
     -- fromStmts' = runErrorT . fromStmts
+
+memptyLoc :: Loc
+memptyLoc = Loc initPos initPos

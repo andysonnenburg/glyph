@@ -14,9 +14,10 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
+import Control.Monad.Writer hiding ((<>))
 
 import Data.Maybe
-import Data.Monoid
+import Data.Semigroup
 import Data.Typeable
 
 import Language.Glyph.HM.Syntax
@@ -25,23 +26,25 @@ import Language.Glyph.IdentMap
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentMap as IdentMap
 import qualified Language.Glyph.IdentSet as IdentSet
-import Language.Glyph.Logger
-import Language.Glyph.Msg
+import Language.Glyph.Msg hiding (singleton)
+import qualified Language.Glyph.Msg as Msg
 import Language.Glyph.Type
 import qualified Language.Glyph.Type as Type
 import Language.Glyph.Unique
 
-inferType :: ( HasLocation a
-            , MonadWriter Msgs m
-            , UniqueMonad m
-            ) => Exp a -> m (Substitution, Type)
+import Text.PrettyPrint.Free
+
+inferType :: ( Pretty a
+             , MonadWriter Msgs m
+             , UniqueMonad m
+             ) => Exp a -> m (Substitution, Type)
 inferType = inferExp mempty
 
 type TypeEnvironment = IdentMap TypeScheme
 
 newtype Substitution =
   Substitution { unSubstitution :: IdentMap Type
-               } deriving (Show, Monoid)
+               } deriving (Show, Semigroup, Monoid)
 
 data TypeException
   = TypeError Type Type
@@ -50,16 +53,31 @@ data TypeException
   | NoMsgError deriving Typeable
 
 instance Show TypeException where
-  show x =
-    case x of
-      TypeError a b ->
-        let (a', b') = showTypes (a, b)
-        in "couldn't match type " ++ a' ++ " and " ++ b'
-      OccursCheckFailed a b ->
-        let (a', b') = showTypes (a, b)
-        in "occurs check failed for " ++ a' ++ " and " ++ b'
-      StrMsgError s -> s
-      NoMsgError -> "internal error"
+  show = show . pretty
+
+instance Pretty TypeException where
+  pretty = go
+    where
+      go (TypeError a b) =
+        text "couldn't" </>
+        text "match" </>
+        text "type" </> a' </>
+        text "and" </> b'
+        where
+          (a', b') = prettyTypes (a, b)
+      go (OccursCheckFailed a b) =
+        text "occurs" </>
+        text "check" </>
+        text "failed" </>
+        text "for" </> a' </>
+        text "and" </> b'
+        where
+          (a', b') = prettyTypes (a, b)
+      go (StrMsgError s) =
+        text s
+      go NoMsgError =
+        text "internal" </>
+        text "error"
 
 instance Error TypeException where
   strMsg = StrMsgError
@@ -67,14 +85,14 @@ instance Error TypeException where
 
 instance Exception TypeException
 
-inferExp :: ( HasLocation a
-           , MonadLogger Message m
-           , UniqueMonad m
-           ) => TypeEnvironment -> Exp a -> m (Substitution, Type)
+inferExp :: ( Pretty a
+            , MonadWriter Msgs m
+            , UniqueMonad m
+            ) => TypeEnvironment -> Exp a -> m (Substitution, Type)
 inferExp = go
   where
-    go gamma e =
-      runReaderT (w gamma (view e)) (location e)
+    go gamma (Exp a x) =
+      runReaderT (w gamma x) a
     w gamma (VarE x) = do
       let sigma = gamma ! x
       tau <- instantiate sigma
@@ -144,8 +162,8 @@ inferLit _gamma x =
      BoolL _ -> Bool
      VoidL -> Void)
 
-tuple :: ( HasLocation a
-        , MonadLogger Message m
+tuple :: ( Pretty a
+        , MonadWriter Msgs m
         , UniqueMonad m
         ) => TypeEnvironment -> [Exp a] -> m (Substitution, Type)
 tuple gamma es = do
@@ -261,18 +279,22 @@ uncons [] = Nothing
 uncons (x:xs) = Just (x, xs)
 -}
 
-mgu :: ( MonadReader Location m
-      , MonadLogger Message m
-      ) => Type -> Type -> m Substitution
+mgu :: ( Pretty a
+       , MonadReader a m
+       , MonadWriter Msgs m
+       ) => Type -> Type -> m Substitution
 mgu tau1 tau2 =
   case (tau1, tau2) of
     (Type.Var a, Type.Var b) | a == b ->
       return mempty
     (Type.Var a, _) ->
       if IdentSet.member a (typeVars tau2)
-        then do logError $ OccursCheckFailed tau1 tau2
-                return mempty
-        else return $ Substitution $ singleton a tau2
+      then do
+        a <- ask
+        tell $ Msg.singleton $ mkErrorMsg a $ OccursCheckFailed tau1 tau2
+        return mempty
+      else
+        return $ Substitution $ singleton a tau2
     (_, Type.Var _) ->
       mgu tau2 tau1
     (x :->: x', y :->: y') -> do
@@ -295,7 +317,8 @@ mgu tau1 tau2 =
     (Cont tau1', Cont tau2') ->
       mgu tau1' tau2'
     _ -> do
-      logError $ TypeError tau1 tau2
+      a <- ask
+      tell $ Msg.singleton $ mkErrorMsg a $ TypeError tau1 tau2
       return mempty
 
 class Apply a where

@@ -25,7 +25,7 @@ module Language.Glyph.IdentSet.Internal
 import Data.Data
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import Data.Monoid
+import Data.Semigroup
 
 import Language.Glyph.Ident.Internal
 import Language.Glyph.Unique.Internal
@@ -36,7 +36,7 @@ import Prelude hiding (null)
 
 newtype IdentSet
   = IdentSet { unIdentSet :: IntSet
-             } deriving (Show, Typeable, Monoid)
+             } deriving (Show, Typeable, Semigroup, Monoid)
 
 instance Data IdentSet where
   gfoldl f z is = z fromList `f` toList is

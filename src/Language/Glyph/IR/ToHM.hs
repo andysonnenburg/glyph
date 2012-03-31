@@ -117,7 +117,7 @@ insnsToExp xs = vars (funs (mapM_' go xs))
         let' (xs', e1) e2 = do
           x <- freshIdent
           y <- freshIdent
-          letE x (fix' (absE y $ selectList y xs' $ (tupleE e1))) $
+          letE x (fix' (absE y $ selectList y xs' $ tupleE e1)) $
             selectList x xs' e2
 
 callGraph :: forall a sym m .
@@ -187,7 +187,10 @@ mapM_' f as = sequence_' (map f' as)
     f' (SomeNode i) = f i
 
 sequence_' :: Monad m => [T a sym m (Exp a)] -> T a sym m (Exp a)
-sequence_' = foldr then' (return' undefined')
+sequence_' = go
+  where
+    go [] = return' undefined'
+    go (x:xs) = foldl then' x xs
 
 varE :: Monad m => Ident -> T a sym m (Exp a)
 varE = liftR0 . HM.varE

@@ -37,7 +37,7 @@ import Text.PrettyPrint.Free hiding (encloseSep, tupled)
 
 class Pretty a => PrettyPrec a where
   prettyPrec :: Int -> a -> Doc e
-  prettyPrec _ x = pretty x
+  prettyPrec _ = pretty
 
 prettyDefault :: PrettyPrec a => a -> Doc e
 prettyDefault = prettyPrec 0
@@ -83,19 +83,27 @@ instance PrettyPrec (ExpView a) where
       go (VarE x) =
         pretty x
       go (AbsE x e) =
-        nest 2 (char '\\' <> pretty x <> char '.'
-                `above`
-                pretty e)
+        prettyParen (p > absPrec) $
+        nest 2 $
+        char '\\' <> pretty x <> char '.'
+        `above`
+        pretty e
+      go (AppE (view -> AppE (view -> AsTypeOf) e1) e2) =
+        prettyParen (p > 9) $
+        prettyPrec 10 e1 <+> text "`asTypeOf`" <+> prettyPrec 10 e2
       go (AppE (view -> AppE (view -> Then) e1) e2) =
-        prettyPrec 1 e1 <+> text ">>"
+        prettyParen (p > 1) $
+        align $
+        prettyPrec 2 e1 <+> text ">>"
         `above`
-        prettyPrec 1 e2
+        prettyPrec 2 e2
       go (AppE e1 e2) =
-        prettyPrec 10 e1
-        `above`
-        prettyPrec 10 e2
+        prettyParen (p > appPrec) $
+        prettyPrec appPrec1 e1 <+> prettyPrec appPrec1 e2
       go (LetE x e1 e2) =
-        text "let" </> pretty x </> char '=' </> pretty e1 </> text "in" </> pretty e2
+        text "let" <+> pretty x <+> char '=' <+> align (pretty e1)
+        `above`
+        text "in" <+> align (pretty e2)
       go (LitE lit) =
         pretty lit
       go (MkTuple x) =
@@ -116,6 +124,15 @@ instance PrettyPrec (ExpView a) where
         text "then"
       go CallCC =
         text "callCC"
+      
+absPrec :: Int
+absPrec = 9
+
+appPrec :: Int
+appPrec = 10
+
+appPrec1 :: Int
+appPrec1 = 11
 
 instance View (Exp a) (ExpView a) where
   view (Exp _ x) = x
@@ -155,8 +172,7 @@ mkTuple x = do
   return $ Exp a $ MkTuple x
 
 tupleE :: MonadReader a m => [m (Exp a)] -> m (Exp a)
-tupleE es = do
-  foldl appE (mkTuple l) es
+tupleE es = foldl appE (mkTuple l) es
   where
     l = length es
 

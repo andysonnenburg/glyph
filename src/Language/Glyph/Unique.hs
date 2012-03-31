@@ -14,13 +14,12 @@ module Language.Glyph.Unique
        , runUniqueSupplyT
        ) where
 
+import Compiler.Hoopl
 import Control.Applicative
 import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
-
-import Language.Glyph.Unique.Internal
 
 instance UniqueMonad m => UniqueMonad (ReaderT r m) where
   freshUnique = lift freshUnique

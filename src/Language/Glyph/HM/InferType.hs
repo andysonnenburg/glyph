@@ -22,7 +22,7 @@ import Data.Typeable
 
 import Language.Glyph.HM.Syntax
 import Language.Glyph.Ident
-import Language.Glyph.IdentMap
+import Language.Glyph.IdentMap hiding (foldr, lookup, map)
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentMap as IdentMap
 import qualified Language.Glyph.IdentSet as IdentSet
@@ -33,6 +33,8 @@ import qualified Language.Glyph.Type as Type
 import Language.Glyph.Unique
 
 import Text.PrettyPrint.Free
+
+import Prelude hiding (lookup)
 
 inferType :: ( Pretty a
              , MonadWriter Msgs m
@@ -47,7 +49,8 @@ newtype Substitution =
                } deriving (Show, Semigroup, Monoid)
 
 data TypeException
-  = TypeError Type Type
+  = VarNotFound Ident
+  | TypeError Type Type
   | OccursCheckFailed Type Type
   | StrMsgError String
   | NoMsgError deriving Typeable
@@ -58,25 +61,29 @@ instance Show TypeException where
 instance Pretty TypeException where
   pretty = go
     where
+      go (VarNotFound x) =
+        pretty x  <+>
+        text "not" <+>
+        text "found"
       go (TypeError a b) =
-        text "couldn't" </>
-        text "match" </>
-        text "type" </> a' </>
-        text "and" </> b'
+        text "couldn't" <+>
+        text "match" <+>
+        text "type" <+> a' <+>
+        text "and" <+> b'
         where
           (a', b') = prettyTypes (a, b)
       go (OccursCheckFailed a b) =
-        text "occurs" </>
-        text "check" </>
-        text "failed" </>
-        text "for" </> a' </>
-        text "and" </> b'
+        text "occurs" <+>
+        text "check" <+>
+        text "failed" <+>
+        text "for" <+> a' <+>
+        text "and" <+> b'
         where
           (a', b') = prettyTypes (a, b)
       go (StrMsgError s) =
         text s
       go NoMsgError =
-        text "internal" </>
+        text "internal" <+>
         text "error"
 
 instance Error TypeException where
@@ -94,7 +101,7 @@ inferExp = go
     go gamma (Exp a x) =
       runReaderT (w gamma x) a
     w gamma (VarE x) = do
-      let sigma = gamma ! x
+      sigma <- lookup x gamma
       tau <- instantiate sigma
       return (mempty, tau)
     w gamma (AbsE x e) = do
@@ -168,6 +175,21 @@ generalize :: Monad m => TypeEnvironment -> Type -> m TypeScheme
 generalize gamma tau = return $ poly alpha tau
   where
     alpha = IdentSet.toList $ typeVars tau \\ typeVars gamma
+
+lookup :: ( Pretty a
+          , MonadReader a m
+          , MonadWriter Msgs m
+          , UniqueMonad m
+          ) => Ident -> IdentMap TypeScheme -> m TypeScheme
+lookup x gamma =
+  case IdentMap.lookup x gamma of
+    Nothing -> do
+      a <- ask
+      tell $ Msg.singleton $ mkErrorMsg a $ VarNotFound x
+      tau <- fresh
+      generalize gamma tau
+    Just sigma ->
+      return sigma
 
 deleteList :: [Ident] -> IdentMap a -> IdentMap a
 deleteList x gamma = foldr delete gamma x

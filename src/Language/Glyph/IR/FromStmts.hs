@@ -33,6 +33,7 @@ import Language.Glyph.Hoopl.Monad.Writer
 import Language.Glyph.IR.Syntax
 import Language.Glyph.Ident
 import qualified Language.Glyph.Syntax as Glyph
+import Language.Glyph.Unique ()
 
 import Text.PrettyPrint.Free
 

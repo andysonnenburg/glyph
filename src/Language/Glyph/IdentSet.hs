@@ -1,8 +1,22 @@
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Glyph.IdentSet
        ( module X
        , IdentSet
+       , (\\)
        ) where
 
-import Language.Glyph.IdentSet.Internal (IdentSet)
-import Language.Glyph.IdentSet.Internal as X hiding (IdentSet (..))
+import Data.Hashable
+import Data.HashSet as X
+import Data.Semigroup
+
+import Prelude (Eq)
+
+import Language.Glyph.Ident
+
+instance (Eq a, Hashable a) => Semigroup (HashSet a) where
+  (<>) = union
+
+type IdentSet = HashSet Ident
+
+(\\) :: (Eq a, Hashable a) => HashSet a -> HashSet a -> HashSet a
+(\\) = difference

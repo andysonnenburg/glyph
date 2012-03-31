@@ -18,14 +18,14 @@ import Data.Monoid
 import Language.Glyph.Hoopl
 import Language.Glyph.HM.Syntax (Exp)
 import qualified Language.Glyph.HM.Syntax as HM
-
-import Language.Glyph.Record hiding (Symtab, select)
-import qualified Language.Glyph.Record as Record
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
 import Language.Glyph.IdentSet (IdentSet)
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.IR.Syntax
+import Language.Glyph.Record hiding (Symtab, select)
+import qualified Language.Glyph.Record as Record
+import Language.Glyph.Unique ()
 
 toHM :: ( Monoid a 
         , Select CallSet IdentSet sym

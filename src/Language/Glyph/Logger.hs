@@ -22,8 +22,6 @@ import Data.Typeable
 import Language.Glyph.Msg
 import Language.Glyph.Unique
 
-import System.Console.Terminfo.PrettyPrint
-
 import Text.PrettyPrint.Free
 
 import Prelude hiding (foldr1)
@@ -65,9 +63,9 @@ instance Pretty LoggerException where
 runLoggerT :: MonadIO m => LoggerT m a -> m a
 runLoggerT m = do
   (a, msgs) <- runWriterT . unLoggerT $ m
-  let doc = vcat . map pretty $ msgs :: TermDoc
+  let doc = vcat . map pretty $ msgs
   liftIO $ do
-    display doc
+    putStr . show $ doc
     unless (null msgs) $ putChar '\n'
   return a
 

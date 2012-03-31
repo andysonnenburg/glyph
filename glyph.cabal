@@ -18,15 +18,16 @@ executable glyph
     cmdargs,
     comonad,
     containers,
+    hashable,
+    unordered-containers,
     mtl,
-    semigroupoids,
     semigroups,
+    semigroupoids,
     syb,
     template-haskell,
     text,
     hoopl,
-    wl-pprint-extras,
-    wl-pprint-terminfo
+    wl-pprint-extras
   build-tools: alex >= 3, happy
   ghc-options: -Wall
 

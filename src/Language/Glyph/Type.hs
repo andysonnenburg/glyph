@@ -14,7 +14,7 @@ import Data.Data
 import Data.Foldable
 import Data.Map (Map)
 
-import Language.Glyph.Ident.Internal
+import Language.Glyph.Ident
 import qualified Language.Glyph.IdentMap as IdentMap
 
 import Text.PrettyPrint.Free hiding (encloseSep, tupled)

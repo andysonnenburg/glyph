@@ -13,7 +13,7 @@ import Data.Graph hiding (Node, scc, vertices)
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
 import qualified Language.Glyph.IdentMap as IdentMap
-import Language.Glyph.IdentSet
+import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Record hiding (Sort, Symtab)
 import qualified Language.Glyph.Record as Record

@@ -7,8 +7,6 @@ module Language.Glyph.Msg
        , singleton
        ) where
 
-import System.Console.Terminfo.PrettyPrint
-
 import Text.PrettyPrint.Free
 
 data Msg = Msg MsgType SomePretty SomePretty
@@ -22,12 +20,6 @@ instance Pretty MsgType where
     where
       go Error = text "error"
       go Warning = text "warning"
-
-instance PrettyTerm MsgType where
-  prettyTerm x = go x $ pretty x
-    where
-      go Error = red
-      go Warning = yellow
 
 mkWarningMsg :: (Pretty a, Pretty b) => a -> b -> Msg
 mkWarningMsg x y = Msg Warning (SomePretty x) (SomePretty y)

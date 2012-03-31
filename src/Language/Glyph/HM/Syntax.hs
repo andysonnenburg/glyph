@@ -106,6 +106,8 @@ instance PrettyPrec (ExpView a) where
         text "in" <+> align (pretty e2)
       go (LitE lit) =
         pretty lit
+      go (MkTuple 0) =
+        text "()"
       go (MkTuple x) =
         text "mkTuple" <> char '_' <> pretty x
       go (Select a b) =

@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls #-}
 module Language.Glyph.Record.Insns
        ( module X
        , Insns
@@ -6,10 +6,11 @@ module Language.Glyph.Record.Insns
        ) where
 
 import Data.Record as X
+import Data.Typeable
 
 import Text.PrettyPrint.Free
 
-data Insns
+data Insns deriving Typeable
 
 insns :: Insns
 insns = undefined

@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, TemplateHaskell #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 module Language.Glyph.Ident
        ( Ident
        , freshIdent
@@ -10,9 +10,6 @@ import Control.Monad
 
 import Data.Data
 import Data.Hashable
-
-import Language.Haskell.TH.Syntax (showName)
-import qualified Language.Haskell.TH as TH
 
 import Text.PrettyPrint.Free
 
@@ -32,7 +29,7 @@ instance Data Ident where
   gunfold _ _ = error "gunfold"
   dataTypeOf _ = mkNoRepType name
     where
-      name = $(return . TH.LitE . TH.StringL . showName $ ''Ident)
+      name = "Language.Glyph.Ident.Ident"
 
 instance Hashable Ident where
   hash = uniqueToInt . unIdent

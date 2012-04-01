@@ -27,8 +27,8 @@ module Data.Record.List
        ) where
 
 infixr 5 `Cons`
-data Record a where
-  Nil :: Record ('[] :: [(*, *)])
+data Record (fields :: [(*, *)]) where
+  Nil :: Record '[]
   Cons :: Field label value -> !(Record fields) -> Record ('(label, value) ': fields)
 
 newtype Field label value = Field value
@@ -80,6 +80,7 @@ instance Member label fields result => Member label (field ': fields) result
 
 type Lacks label fields = Member label fields False
 
+infixr 6 #=
 (#=) :: label -> value -> (label, value)
 label #= value = (label, value)
 

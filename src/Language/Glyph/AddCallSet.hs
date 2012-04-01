@@ -1,5 +1,6 @@
 {-# LANGUAGE
-    FlexibleContexts
+    ConstraintKinds
+  , FlexibleContexts
   , PatternGuards
   , ScopedTypeVariables
   , TypeOperators
@@ -28,6 +29,7 @@ addCallSet :: ( Data a
               , Select Stmts [Stmt a] fields
               , Select Record.Symtab (Symtab sym) fields
               , Remove Record.Symtab fields fields'
+              , Lacks CallSet sym
               , Monad m
               ) =>
               Record fields ->

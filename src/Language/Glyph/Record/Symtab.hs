@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls #-}
 module Language.Glyph.Record.Symtab
        ( module X
        , Symtab
@@ -6,10 +6,11 @@ module Language.Glyph.Record.Symtab
        ) where
 
 import Data.Record as X
+import Data.Typeable
 
 import Text.PrettyPrint.Free
 
-data Symtab
+data Symtab deriving Typeable
 
 symtab :: Symtab
 symtab = undefined

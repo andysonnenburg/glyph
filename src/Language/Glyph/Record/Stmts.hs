@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls #-}
 module Language.Glyph.Record.Stmts
        ( module X
        , Stmts
@@ -6,10 +6,11 @@ module Language.Glyph.Record.Stmts
        ) where
 
 import Data.Record as X
+import Data.Typeable
 
 import Text.PrettyPrint.Free
 
-data Stmts
+data Stmts deriving Typeable
 
 stmts :: Stmts
 stmts = undefined

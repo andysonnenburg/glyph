@@ -22,7 +22,7 @@ import Data.Typeable
 
 import Language.Glyph.HM.Syntax
 import Language.Glyph.Ident
-import Language.Glyph.IdentMap hiding (foldr, lookup, map)
+import Language.Glyph.IdentMap hiding ((\\), foldr, lookup, map)
 import Language.Glyph.IdentSet (IdentSet, (\\))
 import qualified Language.Glyph.IdentMap as IdentMap
 import qualified Language.Glyph.IdentSet as IdentSet
@@ -37,6 +37,7 @@ import Text.PrettyPrint.Free
 import Prelude hiding (lookup)
 
 inferType :: ( Pretty a
+             , MonadError TypeException m
              , MonadWriter Msgs m
              , UniqueMonad m
              ) => Exp a -> m (Substitution, Type)
@@ -49,7 +50,7 @@ newtype Substitution =
                } deriving (Show, Semigroup, Monoid)
 
 data TypeException
-  = VarNotFound Ident
+  = PreviousErrors
   | TypeError Type Type
   | OccursCheckFailed Type Type
   | StrMsgError String
@@ -61,10 +62,12 @@ instance Show TypeException where
 instance Pretty TypeException where
   pretty = go
     where
-      go (VarNotFound x) =
-        pretty x  <+>
-        text "not" <+>
-        text "found"
+      go PreviousErrors =
+        text "failed" <+>
+        text "due" <+> 
+        text "to" <+> 
+        text "previous" <+> 
+        text "error(s)"
       go (TypeError a b) =
         text "couldn't" <+>
         text "match" <+>
@@ -93,6 +96,7 @@ instance Error TypeException where
 instance Exception TypeException
 
 inferExp :: ( Pretty a
+            , MonadError TypeException m
             , MonadWriter Msgs m
             , UniqueMonad m
             ) => TypeEnvironment -> Exp a -> m (Substitution, Type)
@@ -177,17 +181,15 @@ generalize gamma tau = return $ poly alpha tau
     alpha = IdentSet.toList $ typeVars tau \\ typeVars gamma
 
 lookup :: ( Pretty a
+          , MonadError TypeException m
           , MonadReader a m
           , MonadWriter Msgs m
           , UniqueMonad m
           ) => Ident -> IdentMap TypeScheme -> m TypeScheme
 lookup x gamma =
   case IdentMap.lookup x gamma of
-    Nothing -> do
-      a <- ask
-      tell $ Msg.singleton $ mkErrorMsg a $ VarNotFound x
-      tau <- fresh
-      generalize gamma tau
+    Nothing ->
+      throwError PreviousErrors
     Just sigma ->
       return sigma
 

@@ -2,4 +2,4 @@ module Data.Record
        ( module X
        ) where
 
-import Data.Record.List as X
+import Data.Record.Map as X

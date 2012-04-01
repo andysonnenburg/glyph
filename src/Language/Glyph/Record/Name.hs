@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls #-}
 module Language.Glyph.Record.Name
        ( module X
        , Name
@@ -6,10 +6,11 @@ module Language.Glyph.Record.Name
        ) where
 
 import Data.Record as X
+import Data.Typeable
 
 import Text.PrettyPrint.Free
 
-data Name
+data Name deriving Typeable
 
 name :: Name
 name = undefined

@@ -131,11 +131,11 @@ glyph Glyph {..} =
    
    -- Type check syntax via inference
    (\ r -> do
-       let r' = insns #= (IR.mapGraph' WrapSemigroup (r#.insns)) #| r
+       let r' = insns #= IR.mapGraph' WrapSemigroup (r#.insns) #| r #- insns
        hm <- liftM (fmap (unwrapSemigroup memptyLoc)) $ IR.toHM r'
        when dumpHM $
          liftIO $ print hm
-       _ <- inferType hm
+       _ <- runErrorT $ inferType hm
        return r) >=>
    
    -- Convert to bytecode representation

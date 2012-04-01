@@ -1,4 +1,8 @@
-{-# LANGUAGE DataKinds, FlexibleContexts, TypeOperators #-}
+{-# LANGUAGE
+    ConstraintKinds
+  , DataKinds
+  , FlexibleContexts
+  , TypeOperators #-}
 module Language.Glyph.AddSort
        ( addSort
        ) where
@@ -20,6 +24,7 @@ addSort :: ( Data a
            , Select Stmts [Stmt a] fields
            , Select Record.Symtab (Symtab sym) fields
            , Remove Record.Symtab fields fields'
+           , Lacks Record.Sort sym
            , Monad m
            ) =>
            Record fields ->

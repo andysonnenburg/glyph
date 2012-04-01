@@ -1,4 +1,7 @@
-{-# LANGUAGE FlexibleContexts, TypeOperators #-}
+{-# LANGUAGE
+    ConstraintKinds
+  , FlexibleContexts
+  , TypeOperators #-}
 module Language.Glyph.AddName
        ( addName
        ) where
@@ -19,6 +22,7 @@ addName :: ( Data a
            , Select Stmts [Stmt a] fields
            , Select Record.Symtab (Symtab sym) fields
            , Remove Record.Symtab fields fields'
+           , Lacks Name sym
            , Monad m
            ) => 
            Record fields ->

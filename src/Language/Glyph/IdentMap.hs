@@ -5,6 +5,7 @@ module Language.Glyph.IdentMap
        , IdentMap
        , intersectionWith
        , intersectionWith'
+       , (\\)
        ) where
 
 import Data.Hashable
@@ -35,5 +36,8 @@ intersectionWith' :: (Eq k, Hashable k) =>
                      (a -> b -> c) -> b -> HashMap k a -> HashMap k b -> HashMap k c
 intersectionWith' f a m1 m2 =
   intersectionWith f m1 m2 `union` fmap (`f` a) m1
+
+(\\) :: (Eq k, Hashable k) => HashMap k v -> HashMap k w -> HashMap k v
+(\\) = difference
 
 type IdentMap = HashMap Ident

@@ -1,5 +1,6 @@
 {-# LANGUAGE
-    FlexibleContexts
+    ConstraintKinds
+  , FlexibleContexts
   , PatternGuards
   , TypeOperators #-}
 module Language.Glyph.AddExtraSet
@@ -27,6 +28,7 @@ addExtraSet :: ( Select Record.Sort Sort sym
                , Select CallSet IdentSet sym
                , Select Record.Symtab (Symtab sym) fields
                , Remove Record.Symtab fields fields'
+               , Lacks ExtraSet sym
                , Monad m
                ) =>
                Record fields ->

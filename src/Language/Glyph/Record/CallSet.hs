@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls #-}
 module Language.Glyph.Record.CallSet
        ( module X
        , CallSet
@@ -6,10 +6,11 @@ module Language.Glyph.Record.CallSet
        ) where
 
 import Data.Record as X
+import Data.Typeable
 
 import Text.PrettyPrint.Free
 
-data CallSet
+data CallSet deriving Typeable
 
 callSet :: CallSet
 callSet = undefined

@@ -16,7 +16,7 @@ import Language.Glyph.Ident
 instance (Eq a, Hashable a) => Semigroup (HashSet a) where
   (<>) = union
 
-type IdentSet = HashSet Ident
-
 (\\) :: (Eq a, Hashable a) => HashSet a -> HashSet a -> HashSet a
 (\\) = difference
+
+type IdentSet = HashSet Ident

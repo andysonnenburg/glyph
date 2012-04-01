@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls #-}
 module Language.Glyph.Record.FreeVars
        ( module X
        , FreeVars
@@ -6,10 +6,11 @@ module Language.Glyph.Record.FreeVars
        ) where
 
 import Data.Record as X
+import Data.Typeable
 
 import Text.PrettyPrint.Free
 
-data FreeVars
+data FreeVars deriving Typeable
 
 freeVars :: FreeVars
 freeVars = undefined

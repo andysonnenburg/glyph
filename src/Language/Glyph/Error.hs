@@ -15,6 +15,7 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad.Error hiding (ErrorT (..))
 import qualified Control.Monad.Error as Error
+import Control.Monad.Writer
 
 newtype ErrorT e m a
   = ErrorT { unErrorT :: Error.ErrorT e m a
@@ -26,6 +27,7 @@ newtype ErrorT e m a
                       )
 
 deriving instance (Error e, Monad m) => MonadError e (ErrorT e m)
+deriving instance (Error e, MonadWriter w m) => MonadWriter w (ErrorT e m)
 
 runErrorT :: Exception e => MonadIO m => ErrorT e m a -> m a
 runErrorT =

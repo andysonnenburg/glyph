@@ -35,6 +35,13 @@ import Language.Glyph.View
 
 import Text.PrettyPrint.Free hiding (encloseSep, tupled)
 
+data Fixity = Fixity Int FixityDirection
+
+data FixityDirection
+  = None
+  | Left
+  | Right
+
 class Pretty a => PrettyPrec a where
   prettyPrec :: Int -> a -> Doc e
   prettyPrec _ = pretty
@@ -83,14 +90,14 @@ instance PrettyPrec (ExpView a) where
       go (VarE x) =
         pretty x
       go (AbsE x e) =
-        prettyParen (p > absPrec) $
+        prettyParen (p > 0) $
         nest 2 $
         char '\\' <> pretty x <> char '.'
         `above`
         pretty e
       go (AppE (view -> AppE (view -> AsTypeOf) e1) e2) =
-        prettyParen (p > 9) $
-        prettyPrec 10 e1 <+> text "`asTypeOf`" <+> prettyPrec 10 e2
+        prettyParen (p > 10) $
+        prettyPrec 11 e1 <+> text "`asTypeOf`" <+> prettyPrec 11 e2
       go (AppE (view -> AppE (view -> Then) e1) e2) =
         prettyParen (p > 1) $
         align $
@@ -126,9 +133,6 @@ instance PrettyPrec (ExpView a) where
         text "then"
       go CallCC =
         text "callCC"
-      
-absPrec :: Int
-absPrec = 9
 
 appPrec :: Int
 appPrec = 10

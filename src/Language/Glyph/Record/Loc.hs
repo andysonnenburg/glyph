@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls #-}
 module Language.Glyph.Record.Loc
        ( module X
        , Loc
@@ -6,10 +6,11 @@ module Language.Glyph.Record.Loc
        ) where
 
 import Data.Record as X
+import Data.Typeable
 
 import Text.PrettyPrint.Free
 
-data Loc
+data Loc deriving Typeable
 
 loc :: Loc
 loc = undefined

@@ -218,6 +218,7 @@ instance TypeVars Type where
       Int -> mempty
       Double -> mempty
       Bool -> mempty
+      String -> mempty
       Void -> mempty
       Tuple xs -> mconcat . map typeVars $ xs
       Cont a -> typeVars a

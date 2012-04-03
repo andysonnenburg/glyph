@@ -13,6 +13,7 @@ import Compiler.Hoopl
 import Control.Monad.Reader
 
 import Data.Graph (flattenSCC, stronglyConnCompR)
+import Data.Maybe
 import Data.Monoid
 
 import Language.Glyph.Hoopl
@@ -72,17 +73,24 @@ funToExp ps (toList -> xs) = do
 insnsToExp :: ( Select CallSet IdentSet sym
               , UniqueMonad m
               ) => [SomeInsn a] -> T a sym m (Exp a)
-insnsToExp xs = vars (funs (mapM_' go xs))
+insnsToExp xs = vars . funs $ do
+  xs' <- mapM' go xs
+  sequence_' . catMaybes $ xs'
   where
+    mapM' :: Monad m => (forall e x . Insn a e x -> m b) -> [SomeInsn a] -> m [b]
+    mapM' f = mapM f'
+      where
+        f' (SomeNode x) = f x
+    
     go (Stmt a stmt) =
       localA a (stmtToExp stmt)
-    go (Expr a x expr _) =
+    go (Expr a x expr _) = liftM Just $
       return' (localA a $ varE x `asTypeOf'` exprToExp expr)
     go (Label _) =
-      undefined'
-    go (Catch x _) =
+      return Nothing
+    go (Catch x _) = liftM Just $
       return' (varE x)
-    go ReturnVoid = do
+    go ReturnVoid = liftM Just $ do
       cc <- askCC
       appE (varE cc) (litE VoidL)
 
@@ -143,24 +151,24 @@ callGraph = concatMap' go'
         where
           e = localA a $ funToExp params graph
 
-stmtToExp :: Monad m => Stmt a x -> T a sym m (Exp a)
+stmtToExp :: Monad m => Stmt a x -> T a sym m (Maybe (Exp a))
 stmtToExp = go
   where
-    go (ExprS x _) =
+    go (ExprS x _) = liftM Just $
       return' $ varE x
-    go (VarDeclS (ident -> x)) =
+    go (VarDeclS (ident -> x)) = liftM Just $
       return' $ varE x
     go (FunDeclS {}) =
-      undefined'
-    go (ReturnS x _) = do
+      return Nothing
+    go (ReturnS x _) = liftM Just $ do
       cc <- askCC
       appE (varE cc) (varE x)
-    go (GotoS _ _) =
-      undefined'
-    go (IfS x _ _ _) =
+    go (GotoS {}) =
+      return Nothing
+    go (IfS x _ _ _) = liftM Just $
       return' $ varE x `asTypeOf'` litE (BoolL True)
-    go (ThrowS _ _) =
-      undefined'
+    go (ThrowS {}) =
+      return Nothing
 
 exprToExp :: Monad m => Expr a -> T a sym m (Exp a)
 exprToExp = go
@@ -178,16 +186,8 @@ exprToExp = go
     go (AssignE (ident -> x) y) =
       varE x `asTypeOf'` varE y
 
-mapM_' :: Monad m =>
-          (forall e x . Insn a e x -> T a sym m (Exp a)) ->
-          [SomeInsn a] ->
-          T a sym m (Exp a)
-mapM_' f as = sequence_' (map f' as)
-  where
-    f' (SomeNode i) = f i
-
-sequence_' :: Monad m => [T a sym m (Exp a)] -> T a sym m (Exp a)
-sequence_' = go
+sequence_' :: Monad m => [Exp a] -> T a sym m (Exp a)
+sequence_' = go . map return
   where
     go [] = return' undefined'
     go (x:xs) = foldl then' x xs

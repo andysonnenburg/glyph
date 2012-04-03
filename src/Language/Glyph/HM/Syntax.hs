@@ -35,13 +35,6 @@ import Language.Glyph.View
 
 import Text.PrettyPrint.Free hiding (encloseSep, tupled)
 
-data Fixity = Fixity Int FixityDirection
-
-data FixityDirection
-  = None
-  | Left
-  | Right
-
 class Pretty a => PrettyPrec a where
   prettyPrec :: Int -> a -> Doc e
   prettyPrec _ = pretty

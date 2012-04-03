@@ -35,9 +35,11 @@ data TokenView
   | RightBrace
   | Colon
   | Semicolon
-  | Int Integer
   | True
   | False
+  | Int Integer
+  | Double Double
+  | String Text
   | Void
   | Bang
   | Return
@@ -72,6 +74,9 @@ instance Pretty TokenView where
       Int a -> pretty a
       True -> text "true"
       False -> text "false"
+      Int a -> pretty a
+      Double a -> pretty a
+      String a -> dquotes . text . Text.unpack $ a
       Void -> text "void"
       Bang -> char '!'
       Return -> text "return"

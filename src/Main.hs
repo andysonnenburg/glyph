@@ -24,7 +24,6 @@ import Language.Glyph.CheckContinue
 import Language.Glyph.CheckFun
 import Language.Glyph.CheckReturn
 -- import Language.Glyph.CheckVar
-import Language.Glyph.Error
 import Language.Glyph.HM (inferType)
 import qualified Language.Glyph.IR as IR
 import Language.Glyph.IdentMap (IdentMap)
@@ -64,7 +63,7 @@ main = do
 glyph :: Glyph -> IO ()
 glyph Glyph {..} =
   ByteString.getContents >>=
-  runLoggerT . runUniqueSupplyT .
+  runUniqueSupplyT . runLoggerT .
   
   -- Parse
   (runErrorT . parse >=>

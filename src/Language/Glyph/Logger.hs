@@ -9,12 +9,14 @@
 module Language.Glyph.Logger
        ( LoggerT
        , runLoggerT
+       , runErrorT
        , LoggerException (..)
        ) where
 
 import Control.Applicative
 import Control.Exception
-import Control.Monad.Error
+import Control.Monad.Error hiding (runErrorT)
+import qualified Control.Monad.Error as Error
 import Control.Monad.Writer
 
 import Data.Typeable
@@ -24,24 +26,44 @@ import Language.Glyph.Unique
 
 import Text.PrettyPrint.Free
 
-import Prelude hiding (foldr1)
-
 newtype LoggerT m a
-  = LoggerT { unLoggerT :: WriterT Msgs m a
+  = LoggerT { unLoggerT :: ErrorT WrappedSomeException (WriterT Msgs m) a
             } deriving ( Functor
                        , Applicative
                        , Monad
                        , MonadIO
-                       , MonadTrans
                        , MonadFix
                        )
+
+instance MonadTrans LoggerT where
+  lift = LoggerT . lift . lift
+
+newtype WrappedSomeException
+  = WrapSomeException { unwrapSomeException :: SomeException
+                      }
+
+instance Error WrappedSomeException where
+  strMsg = WrapSomeException . toException . userError
+  noMsg = WrapSomeException . toException $ userError "internal error"
 
 instance Monad m => MonadWriter Msgs (LoggerT m) where
   tell = LoggerT . tell
   listen = LoggerT . listen . unLoggerT
   pass = LoggerT . pass . unLoggerT
 
-deriving instance MonadError e m => MonadError e (LoggerT m)
+runErrorT :: (Exception e, Monad m) => ErrorT e (LoggerT m) a -> LoggerT m a
+runErrorT = LoggerT . mapErrorT (joinErrorT . liftM (mapLeft f) . unLoggerT)
+  where
+    f = WrapSomeException . toException
+
+joinErrorT :: Monad m => ErrorT e m (Either e a) -> m (Either e a)
+joinErrorT = liftM join . Error.runErrorT
+
+mapLeft :: (a -> c) -> Either a b -> Either c b
+mapLeft f = go
+  where
+    go (Left l) = Left (f l)
+    go (Right r) = Right r
 
 data LoggerException = PreviousErrors deriving Typeable
 
@@ -62,12 +84,12 @@ instance Pretty LoggerException where
 
 runLoggerT :: MonadIO m => LoggerT m a -> m a
 runLoggerT m = do
-  (a, msgs) <- runWriterT . unLoggerT $ m
+  (a, msgs) <- runWriterT . Error.runErrorT . unLoggerT $ m
   let doc = vcat . map pretty $ msgs
   liftIO $ do
     putStr . show $ doc
     unless (null msgs) $ putChar '\n'
-  return a
+  either (liftIO . throwIO . unwrapSomeException) return a
 
 instance UniqueMonad m => UniqueMonad (LoggerT m) where
   freshUnique = lift freshUnique

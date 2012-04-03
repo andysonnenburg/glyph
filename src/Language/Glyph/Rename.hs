@@ -106,15 +106,15 @@ instance Pretty NameException where
   pretty = go
     where
       go (NotFound a) =
-        char '`' <> text (Text.unpack a) <> char '\'' </>
-        text "not" </> text "found"
+        char '`' <> text (Text.unpack a) <> char '\'' <+>
+        text "not" <+> text "found"
       go (AlreadyDefined a) =
-        char '`' <> text (Text.unpack a) <> char '\'' </>
-        text "already" </> text "defined"
+        char '`' <> text (Text.unpack a) <> char '\'' <+>
+        text "already" <+> text "defined"
       go (StrMsgError s) =
         text s
       go NoMsgError =
-        text "internal" </> text "error"
+        text "internal" <+> text "error"
 
 instance Exception NameException
 

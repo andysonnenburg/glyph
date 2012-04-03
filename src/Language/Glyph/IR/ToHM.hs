@@ -218,9 +218,9 @@ selectList x = go
     go [] e = do
       y <- freshIdent
       letE y (varE x `asTypeOf'` tupleE []) e
-    go ys e = snd (foldr f (0, id) ys) e
+    go ys e = foldr f id (zip [0 ..] ys) e
       where
-        f y (i, f') = (i + 1, letE y (appE (select i l) (varE x)) . f')
+        f (i, y) f' = letE y (appE (select i l) (varE x)) . f'
         l = length ys
 
 select :: Monad m => Int -> Int -> T a sym m (Exp a)

@@ -16,6 +16,7 @@ module Language.Glyph.Unique
 
 import Compiler.Hoopl
 import Control.Applicative
+import Control.Monad.Error
 import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State
@@ -51,3 +52,6 @@ instance Monad m => UniqueMonad (UniqueSupplyT m) where
     i <- get
     put $ i + 1
     return $ intToUnique i
+
+instance (Error e, UniqueMonad m) => UniqueMonad (ErrorT e m) where
+  freshUnique = lift freshUnique

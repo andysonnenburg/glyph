@@ -50,7 +50,7 @@ newtype Substitution =
                } deriving (Show, Semigroup, Monoid)
 
 data TypeException
-  = PreviousErrors
+  = VarNotFound
   | TypeError Type Type
   | OccursCheckFailed Type Type
   | StrMsgError String
@@ -62,12 +62,10 @@ instance Show TypeException where
 instance Pretty TypeException where
   pretty = go
     where
-      go PreviousErrors =
-        text "failed" <+>
-        text "due" <+> 
-        text "to" <+> 
-        text "previous" <+> 
-        text "error(s)"
+      go VarNotFound =
+        text "var" <+>
+        text "not" <+> 
+        text "found"
       go (TypeError a b) =
         text "couldn't" <+>
         text "match" <+>
@@ -189,7 +187,7 @@ lookup :: ( Pretty a
 lookup x gamma =
   case IdentMap.lookup x gamma of
     Nothing ->
-      throwError PreviousErrors
+      throwError VarNotFound
     Just sigma ->
       return sigma
 

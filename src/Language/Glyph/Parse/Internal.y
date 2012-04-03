@@ -41,9 +41,11 @@ NAME { (view -> Name _) }
 '}' { (view -> RightBrace) }
 ';' { (view -> Semicolon) }
 ':' { (view -> Colon) }
-INT { (view -> Int _) }
 TRUE { (view -> Token.True) }
 FALSE { (view -> Token.False) }
+INT { (view -> Int _) }
+DOUBLE { (view -> Double _) }
+STRING { (view -> String _) }
 VOID { (view -> Token.Void) }
 '!' { (view -> Token.Bang) }
 RETURN { (view -> Token.Return) }
@@ -101,6 +103,9 @@ expr :: { Expr }
   : var { $1 }
   | fun { $1 }
   | bool { $1 }
+  | int { $1 }
+  | double { $1 }
+  | string { $1 }
   | void { $1 }
   | not { $1 }
   | apply { $1 }
@@ -154,6 +159,15 @@ fun :: { Expr }
 bool :: { Expr }
   : TRUE { expr $1 $1 (bool True) }
   | FALSE { expr $1 $1 (bool False) }
+
+int :: { Expr }
+  : INT { expr $1 $1 (int $1) }
+
+double :: { Expr }
+  : DOUBLE { expr $1 $1 (double $1) }
+
+string :: { Expr }
+  : STRING { expr $1 $1 (string $1) }
 
 void :: { Expr }
   : VOID { expr $1 $1 void }
@@ -263,6 +277,15 @@ fun params stmts = do
 
 bool :: Bool -> ExprView
 bool = LitE . BoolL
+
+int :: Token -> ExprView
+int (view -> Int x) = LitE $ IntL x
+
+double :: Token -> ExprView
+double (view -> Double x) = LitE $ DoubleL x
+
+string :: Token -> ExprView
+string (view -> String x) = LitE $ StringL x
 
 void :: ExprView
 void = LitE VoidL

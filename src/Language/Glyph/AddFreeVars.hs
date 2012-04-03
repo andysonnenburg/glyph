@@ -65,7 +65,7 @@ freeVarsQ symtab' =
 
     queryFun x (map ident -> params) stmts' =
       freeVars' <>
-      IdentMap.singleton x (nestedFreeVars <> vars \\ varDecls)
+      IdentMap.singleton x ((nestedFreeVars <> vars) \\ varDecls)
       where
         varDecls = varDeclsQ stmts' <> IdentSet.fromList params
         vars = varsQ symtab' stmts'

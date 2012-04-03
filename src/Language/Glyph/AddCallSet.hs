@@ -66,7 +66,7 @@ callSetsQ symtab' =
     queryFun x stmts' =
       callSets <> IdentMap.singleton x callSet'
       where
-        callSet' = nestedCallSet <> funVars \\ nestedFuns
+        callSet' = (nestedCallSet <> funVars) \\ nestedFuns
         nestedCallSet =
           mconcat .
           map (callSets !) .

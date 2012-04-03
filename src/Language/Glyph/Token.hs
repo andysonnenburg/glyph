@@ -5,6 +5,7 @@ module Language.Glyph.Token
        , TokenView (..)
        ) where
 
+import Data.Int
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -37,7 +38,7 @@ data TokenView
   | Semicolon
   | True
   | False
-  | Int Integer
+  | Int Int32
   | Double Double
   | String Text
   | Void
@@ -71,10 +72,9 @@ instance Pretty TokenView where
       RightBrace -> char '}'
       Colon -> char ':'
       Semicolon -> char ';'
-      Int a -> pretty a
       True -> text "true"
       False -> text "false"
-      Int a -> pretty a
+      Int a -> pretty . toInteger $ a
       Double a -> pretty a
       String a -> dquotes . text . Text.unpack $ a
       Void -> text "void"

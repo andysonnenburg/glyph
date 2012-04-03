@@ -25,9 +25,10 @@ data Type
   = Var Var
   | Record (Map Label Type)
   | Type :->: Type
+  | Bool
   | Int
   | Double
-  | Bool
+  | String
   | Void
 
   | Tuple [Type]
@@ -54,12 +55,14 @@ prettyTypes = uncurry go
           a' <- prettyTypeM a
           b' <- prettyTypeM b
           return $ a' <+> text "->" <+> b'
+        Bool ->
+          return $ text "bool"
         Int ->
           return $ text "int"
         Double ->
           return $ text "double"
-        Bool ->
-          return $ text "bool"
+        String ->
+          return $ text "string"
         Void ->
           return $ text "void"
         Tuple xs -> do

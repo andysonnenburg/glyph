@@ -55,16 +55,18 @@ data ExprView a
   | AssignE Name (Expr a) deriving (Show, Typeable, Data, Functor)
 
 data Lit
-  = IntL Int32
+  = BoolL Bool
+  | IntL Int32
   | DoubleL Double
-  | BoolL Bool
+  | StringL Text
   | VoidL deriving (Eq, Typeable, Data)
 
 instance Pretty Lit where
-  pretty (IntL x) = pretty . toInteger $ x
-  pretty (DoubleL x) = pretty x
   pretty (BoolL True) = text "true"
   pretty (BoolL False) = text "false"
+  pretty (IntL x) = pretty . toInteger $ x
+  pretty (DoubleL x) = pretty x
+  pretty (StringL x) = text . show . Text.unpack $ x
   pretty VoidL = text "void"
 
 instance Show Lit where

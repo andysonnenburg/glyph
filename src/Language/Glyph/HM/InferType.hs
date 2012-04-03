@@ -158,9 +158,10 @@ inferLit _gamma x =
   return
   (mempty,
    case x of
+     BoolL _ -> Bool
      IntL _ -> Int
      DoubleL _ -> Double
-     BoolL _ -> Bool
+     StringL _ -> String
      VoidL -> Void)
 
 fresh :: UniqueMonad m => m Type

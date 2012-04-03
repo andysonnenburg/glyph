@@ -13,6 +13,7 @@ module Language.Glyph.IR.Syntax
        , ExprIdent
        , Successor
        , mapGraph'
+       , mapGraph''
        , prettyGraph
        ) where
 
@@ -47,6 +48,20 @@ deriving instance Typeable3 Insn
 mapGraph' :: (a -> b) -> Graph (Insn a) e x -> Graph (Insn b) e x
 mapGraph' f = mapGraph (unwrapInsn . fmap f . WrapInsn)
 
+mapGraph'' :: forall a .
+              (Graph (Insn a) O C -> Graph (Insn a) O C) ->
+              Graph (Insn a) O C ->
+              Graph (Insn a) O C
+mapGraph'' f = f . go
+  where
+    go = mapGraph f'
+    f' :: forall e x . Insn a e x -> Insn a e x
+    f' (Stmt a (FunDeclS name params graph)) =
+      Stmt a (FunDeclS name params (f (go graph)))
+    f' (Expr a x (FunE x' params graph) successors') =
+      Expr a x (FunE x' params (f (go graph))) successors'
+    f' insn =
+      insn
 
 newtype WrappedInsn e x a
   = WrapInsn { unwrapInsn :: Insn a e x

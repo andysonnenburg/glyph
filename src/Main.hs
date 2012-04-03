@@ -26,6 +26,7 @@ import Language.Glyph.CheckReturn
 -- import Language.Glyph.CheckVar
 import Language.Glyph.HM (inferType)
 import qualified Language.Glyph.IR as IR
+import Language.Glyph.IR.RemoveUnreachable
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.Loc
@@ -127,6 +128,10 @@ glyph Glyph {..} =
        when dumpIR $
          liftIO $ putStrLn $ IR.showGraph' ir
        return $ insns #= ir #| r #- stmts) >=>
+   
+   (\ r -> do
+     let r' = insns #= IR.mapGraph'' removeUnreachable (r#.insns) #| r #- insns
+     return r') >=>
    
    -- Type check syntax via inference
    (\ r -> do

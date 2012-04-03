@@ -329,9 +329,10 @@ instance Apply Type where
     case x of
       Type.Var alpha -> fromMaybe x $ IdentMap.lookup alpha (unSubstitution s)
       a :->: b -> (s $$ a) :->: (s $$ b)
+      Bool -> Bool
       Int -> Int
       Double -> Double
-      Bool -> Bool
+      String -> String
       Void -> Void
       Tuple xs -> Tuple $ s $$ xs
       Cont a -> Cont $ s $$ a

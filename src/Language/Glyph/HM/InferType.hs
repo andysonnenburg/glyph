@@ -17,7 +17,7 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Control.Monad.Writer hiding ((<>))
 
 import Data.Foldable (toList)
@@ -146,7 +146,7 @@ inferExp = go
       let d = (psi2 $$ c2) <> c3
           psi' = psi2 $. psi1
       (c, psi) <- normalize d psi'
-      show sigma `trace` return (psi, c, psi $$ tau')
+      return (psi, c, psi $$ tau')
     w gamma (LitE lit) =
       inferLit gamma lit
     w _gamma (MkTuple x) = do

@@ -14,7 +14,7 @@ module Language.Glyph.Rename
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Control.Monad.Writer hiding ((<>))
 
 import Data.Map (Map)

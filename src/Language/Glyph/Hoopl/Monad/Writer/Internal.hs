@@ -40,7 +40,7 @@ newtype WriterT w m e x a = WriterT { runWriterT :: m (a, w e x) }
 
 execWriterT :: Monad m => WriterT w m e x a -> m (w e x)
 execWriterT m = do
-  ~(_, w) <- runWriterT m
+  (_, w) <- runWriterT m
   return w
 
 mapWriterT :: (m (a, w e x) -> n (b, w' e x)) -> WriterT w m e x a -> WriterT w' n e x b
@@ -49,8 +49,8 @@ mapWriterT f m = WriterT $ f (runWriterT m)
 instance (Category w, Monad m) => Hoopl.Monad (WriterT w m) where
   return a = WriterT $ return (a, id)
   m >>= k = WriterT $ do
-    ~(a, w) <- runWriterT m
-    ~(b, w') <- runWriterT (k a)
+    (a, w) <- runWriterT m
+    (b, w') <- runWriterT (k a)
     return (b, w >>> w')
   fail msg = WriterT $ fail msg
 

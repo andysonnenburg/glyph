@@ -16,7 +16,7 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad.Error hiding (runErrorT)
 import qualified Control.Monad.Error as Error
-import Control.Monad.Writer
+import Control.Monad.Writer.Strict
 
 import Data.Typeable
 

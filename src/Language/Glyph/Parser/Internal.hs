@@ -19,8 +19,8 @@ module Language.Glyph.Parser.Internal
 import Control.Applicative
 import Control.Exception
 import Control.Monad.Error
-import Control.Monad.State (StateT, evalStateT)
-import qualified Control.Monad.State as State
+import Control.Monad.State.Strict (StateT, evalStateT)
+import qualified Control.Monad.State.Strict as State
 
 import Data.ByteString.Lazy (ByteString)
 import Data.Text.Encoding.Error

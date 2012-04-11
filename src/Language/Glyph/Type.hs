@@ -23,9 +23,9 @@ import Control.Monad.Writer hiding ((<>))
 import Data.Data
 import Data.Foldable
 import Data.Hashable
-import Data.Set (Set)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.HashSet (HashSet)
 
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap)
@@ -33,6 +33,8 @@ import qualified Language.Glyph.IdentMap as IdentMap
 import Language.Glyph.Syntax (MethodName, prettyText)
 
 import Text.PrettyPrint.Free hiding (encloseSep, tupled)
+
+type Set = HashSet
 
 class Pretty' a where
   pretty' :: MonadState (Int, IdentMap (Doc e)) m => a -> m (Doc e)
@@ -49,11 +51,10 @@ showDefault = show . pretty
 data TypeScheme = Forall [Var] Constraint Type
 
 instance Pretty' TypeScheme where
-  pretty' (Forall alpha c tau) = do
-    alpha' <- mapM pretty' alpha
+  pretty' (Forall _alpha c tau) = do
     c' <- pretty' c
     tau' <- pretty' tau
-    return $ hsep [text "forall", hsep alpha', char '.', c', text "=>", tau']
+    return $ c' <+> text "=>" <+> tau'
 
 instance Pretty TypeScheme where
   pretty = prettyDefault

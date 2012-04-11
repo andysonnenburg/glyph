@@ -196,7 +196,7 @@ access l = do
   return $ Exp a $ Access l
 
 accessE :: MonadReader a m => Label -> m (Exp a) -> m (Exp a)
-accessE l x = appE (access l) x
+accessE = appE . access
 
 undefined' :: MonadReader a m => m (Exp a)
 undefined' = do

@@ -4,7 +4,6 @@
   , FlexibleInstances
   , GeneralizedNewtypeDeriving
   , MultiParamTypeClasses
-  , StandaloneDeriving
   , UndecidableInstances #-}
 module Language.Glyph.Logger
        ( LoggerT

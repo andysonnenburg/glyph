@@ -6,10 +6,8 @@
   , GADTs
   , GeneralizedNewtypeDeriving
   , OverloadedStrings
-  , PatternGuards
   , ScopedTypeVariables
-  , TypeSynonymInstances
-  , ViewPatterns #-}
+  , TypeSynonymInstances #-}
 module Language.Glyph.HM.InferType
        ( Substitution
        , inferType
@@ -25,7 +23,7 @@ import Control.Monad.Writer hiding ((<>))
 import Data.Foldable (toList)
 import Data.Maybe
 import Data.Semigroup
-import qualified Data.Set as Set
+import qualified Data.HashSet as Set
 import Data.Typeable
 
 import Language.Glyph.HM.Syntax
@@ -131,7 +129,7 @@ inferExp = go
     w gamma (AbsE x e) = do
       alpha <- fresh
       (psi, c, tau) <- inferExp (delete x gamma <> singleton x (mono alpha)) e
-      return (psi, c, (psi $$ alpha) :->: tau)
+      return (psi $\ alpha, c, (psi $$ alpha) :->: tau)
     w gamma (AppE e1 e2) = do
       (psi1, c1, tau1) <- inferExp gamma e1
       (psi2, c2, tau2) <- inferExp (psi1 $$ gamma) e2
@@ -142,8 +140,9 @@ inferExp = go
       return (psi, c, psi $$ alpha)
     w gamma (LetE x e e') = do
       (psi1, c1, tau) <- inferExp (delete x gamma) e
-      (c2, sigma) <- generalize c1 (psi1 $$ gamma) tau
-      (psi2, c3, tau') <- inferExp (delete x (psi1 $$ gamma) <> singleton x sigma) e'
+      let gamma' = psi1 $$ gamma
+      (c2, sigma) <- generalize c1 gamma' tau
+      (psi2, c3, tau') <- inferExp (delete x gamma' <> singleton x sigma) e'
       let d = (psi2 $$ c2) <> c3
           psi' = psi2 $. psi1
       (c, psi) <- normalize d psi'
@@ -206,27 +205,35 @@ normalize :: ( Pretty a
              Constraint ->
              Substitution ->
              m (Constraint, Substitution)
-normalize d phi = evalStateT' $ do
-  whileD $ \ p ->
-    case p of
-      tau := tau' -> do
-        psi' <- mgu tau tau'
-        modifyD $ \ d -> psi' $$ d
-        modifyC $ \ c -> psi' $$ c
-        modifyPsi $ \ psi -> psi' $. psi
-      p@(Type.Var a :. (l, tau)) -> do
-        forAllD a l $ \ tau' ->
-          modifyD $ \ d -> d `u` (tau := tau') \\ (Var a :. (l, tau'))
-        modifyC $ \ c -> c `u` (Var a :. (l, tau))
-  c <- getC
-  psi <- getPsi
-  return (c, psi)
-  where    
+normalize = runNormalize
+  where
+    runNormalize d phi = evalStateT normalizeM initS
+      where
+        initS =
+          NormalizeS { normalizeD = d
+                     , normalizeC = mempty
+                     , normalizePsi = phi
+                     }
+    normalizeM = do
+      whileD $ \ p ->
+        case p of
+          tau := tau' -> do
+            psi' <- mgu tau tau'
+            modifyD $ \ d -> psi' $$ d
+            modifyC $ \ c -> psi' $$ c
+            modifyPsi $ \ psi -> psi' $. psi
+          Type.Var a :. (l, tau) -> do
+            forAllD a l $ \ tau' ->
+              modifyD $ \ d -> d `u` (tau := tau') \\ (Var a :. (l, tau'))
+            modifyC $ \ c -> c `u` (Var a :. (l, tau))
+      c <- getC
+      psi <- getPsi
+      return (c, psi)
     whileD f = go
       where
         go = do
           d <- getD
-          case Set.maxView d of
+          case view d of
             Just (p, d') -> do
               putD d'
               f p
@@ -255,15 +262,12 @@ normalize d phi = evalStateT' $ do
       gets normalizePsi
     modifyPsi f =
       modify (\ s -> s { normalizePsi = f (normalizePsi s) })
-    evalStateT' =
-      flip evalStateT initS
     u = flip Set.insert
     (\\) = flip Set.delete
-    initS =
-      NormalizeS { normalizeD = d
-                 , normalizeC = mempty
-                 , normalizePsi = phi
-                 }
+    view s =
+      case toList s of
+        (x:_) -> Just (x, Set.delete x s)
+        [] -> Nothing
 
 data NormalizeS =
   NormalizeS { normalizeD :: Constraint

@@ -1,8 +1,13 @@
 {-# LANGUAGE
-    DeriveDataTypeable
+    DataKinds
+  , DeriveDataTypeable
   , FlexibleContexts
   , FlexibleInstances
+  , GADTs
   , GeneralizedNewtypeDeriving
+  , OverloadedStrings
+  , PatternGuards
+  , ScopedTypeVariables
   , TypeSynonymInstances
   , ViewPatterns #-}
 module Language.Glyph.HM.InferType
@@ -14,16 +19,19 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
+import Control.Monad.State
 import Control.Monad.Writer hiding ((<>))
 
+import Data.Foldable (toList)
 import Data.Maybe
 import Data.Semigroup
+import qualified Data.Set as Set
 import Data.Typeable
 
 import Language.Glyph.HM.Syntax
 import Language.Glyph.Ident
-import Language.Glyph.IdentMap hiding ((\\), foldr, lookup, map)
-import Language.Glyph.IdentSet (IdentSet, (\\))
+import Language.Glyph.IdentMap (IdentMap, delete, intersection, singleton)
+import Language.Glyph.IdentSet (IdentSet, (\\), member)
 import qualified Language.Glyph.IdentMap as IdentMap
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Msg hiding (singleton)
@@ -34,13 +42,15 @@ import Language.Glyph.Unique
 
 import Text.PrettyPrint.Free
 
-import Prelude hiding (lookup)
+import Prelude hiding (lookup, null)
+
+import Debug.Trace
 
 inferType :: ( Pretty a
              , MonadError TypeException m
              , MonadWriter Msgs m
              , UniqueMonad m
-             ) => Exp a -> m (Substitution, Type)
+             ) => Exp a -> m (Substitution, Constraint, Type)
 inferType = inferExp mempty
 
 type TypeEnvironment = IdentMap TypeScheme
@@ -53,6 +63,7 @@ data TypeException
   = VarNotFound
   | TypeError Type Type
   | OccursCheckFailed Type Type
+  | MissingLabel Type Label
   | StrMsgError String
   | NoMsgError deriving Typeable
 
@@ -81,6 +92,14 @@ instance Pretty TypeException where
         text "and" <+> b'
         where
           (a', b') = prettyTypes (a, b)
+      go (MissingLabel a l) =
+        text "type" <+>
+        pretty a <+>
+        text "does" <+>
+        text "not" <+>
+        text "have" <+>
+        text "method" <+>
+        char '`' <> prettyLabel l <> char '\''
       go (StrMsgError s) =
         text s
       go NoMsgError =
@@ -97,87 +116,180 @@ inferExp :: ( Pretty a
             , MonadError TypeException m
             , MonadWriter Msgs m
             , UniqueMonad m
-            ) => TypeEnvironment -> Exp a -> m (Substitution, Type)
+            ) =>
+            TypeEnvironment ->
+            Exp a ->
+            m (Substitution, Constraint, Type)
 inferExp = go
   where
     go gamma (Exp a x) =
       runReaderT (w gamma x) a
     w gamma (VarE x) = do
       sigma <- lookup x gamma
-      tau <- instantiate sigma
-      return (mempty, tau)
+      (c, tau) <- instantiate sigma
+      return (mempty, c, tau)
     w gamma (AbsE x e) = do
-      beta <- fresh
-      (s1, tau1) <- inferExp (delete x gamma <> singleton x (mono beta)) e
-      return (s1, (s1 $$ beta) :->: tau1)
+      alpha <- fresh
+      (psi, c, tau) <- inferExp (delete x gamma <> singleton x (mono alpha)) e
+      return (psi, c, (psi $$ alpha) :->: tau)
     w gamma (AppE e1 e2) = do
-      (s1, tau1) <- inferExp gamma e1
-      (s2, tau2) <- inferExp (s1 $$ gamma) e2
-      beta <- fresh
-      s3 <- mgu (s2 $$ tau1) (tau2 :->: beta)
-      return (s3 $. s2 $. s1, s3 $$ beta)
-    w gamma (LetE x e1 e2) = do
-      (s1, tau1) <- inferExp gamma e1
-      sigma <- generalize (s1 $$ gamma) tau1
-      (s2, tau2) <- inferExp ((s1 $$ delete x gamma) <> singleton x sigma) e2
-      return (s2 $. s1, tau2)
+      (psi1, c1, tau1) <- inferExp gamma e1
+      (psi2, c2, tau2) <- inferExp (psi1 $$ gamma) e2
+      let psi' = psi2 $. psi1
+      alpha <- fresh
+      let d = (psi2 $$ c1) <> c2 <> Set.singleton ((psi2 $$ tau1) := tau2 :->: alpha)
+      (c, psi) <- normalize d psi'
+      return (psi, c, psi $$ alpha)
+    w gamma (LetE x e e') = do
+      (psi1, c1, tau) <- inferExp (delete x gamma) e
+      (c2, sigma) <- generalize c1 (psi1 $$ gamma) tau
+      (psi2, c3, tau') <- inferExp (delete x (psi1 $$ gamma) <> singleton x sigma) e'
+      let d = (psi2 $$ c2) <> c3
+          psi' = psi2 $. psi1
+      (c, psi) <- normalize d psi'
+      show sigma `trace` return (psi, c, psi $$ tau')
     w gamma (LitE lit) =
       inferLit gamma lit
     w _gamma (MkTuple x) = do
       alphas <- replicateM x fresh
-      return (mempty, foldr (:->:) (Tuple alphas) alphas)
+      return (mempty, mempty, foldr (:->:) (Tuple alphas) alphas)
     w _gamma (Select x y) = do
       alphas <- replicateM y fresh
-      return (mempty, Tuple alphas :->: (alphas !! x))
+      return (mempty, mempty, Tuple alphas :->: (alphas !! x))
+    w _gamma (Access l) = do
+      a <- fresh
+      b <- fresh
+      return (mempty, Set.singleton (a :. (l, b)), a :->: b)
     w _gamma Undefined = do
       alpha <- fresh
-      return (mempty, alpha)
+      return (mempty, mempty, alpha)
     w _gamma AsTypeOf = do
       a <- fresh
-      return (mempty, a :->: a :->: a)
+      return (mempty, mempty, a :->: a :->: a)
     w _gamma Fix = do
       a <- fresh
-      return (mempty, (a :->: a) :->: a)
+      return (mempty, mempty, (a :->: a) :->: a)
     w _gamma RunCont = do
       a <- fresh
-      return (mempty, Cont a :->: a)
+      return (mempty, mempty, Cont a :->: a)
     w _gamma Return = do
       a <- fresh
-      return (mempty, a :->: Cont a)
+      return (mempty, mempty, a :->: Cont a)
     w _gamma Then = do
       a <- fresh
       b <- fresh
-      return (mempty, Cont a :->: Cont b :->: Cont b)
+      return (mempty, mempty, Cont a :->: Cont b :->: Cont b)
     w _gamma CallCC = do
       a <- fresh
       b <- fresh
-      return (mempty, ((a :->: Cont b) :->: Cont a) :->: Cont a)
+      return (mempty, mempty, ((a :->: Cont b) :->: Cont a) :->: Cont a)
 
-inferLit :: Monad m => TypeEnvironment -> Lit -> m (Substitution, Type)
+inferLit :: Monad m =>
+            TypeEnvironment -> Lit -> m (Substitution, Constraint, Type)
 inferLit _gamma x =
-  return
-  (mempty,
-   case x of
-     BoolL _ -> Bool
-     IntL _ -> Int
-     DoubleL _ -> Double
-     StringL _ -> String
-     VoidL -> Void)
+  return (mempty, mempty, tau)
+  where
+    tau =
+      case x of
+        BoolL _ -> Bool
+        IntL _ -> Int
+        DoubleL _ -> Double
+        StringL _ -> String
+        VoidL -> Void
+
+normalize :: ( Pretty a
+             , MonadError TypeException m
+             , MonadReader a m
+             , MonadWriter Msgs m
+             , UniqueMonad m
+             ) =>
+             Constraint ->
+             Substitution ->
+             m (Constraint, Substitution)
+normalize d phi = evalStateT' $ do
+  whileD $ \ p ->
+    case p of
+      tau := tau' -> do
+        psi' <- mgu tau tau'
+        modifyD $ \ d -> psi' $$ d
+        modifyC $ \ c -> psi' $$ c
+        modifyPsi $ \ psi -> psi' $. psi
+      p@(Type.Var a :. (l, tau)) -> do
+        forAllD a l $ \ tau' ->
+          modifyD $ \ d -> d `u` (tau := tau') \\ (Var a :. (l, tau'))
+        modifyC $ \ c -> c `u` (Var a :. (l, tau))
+  c <- getC
+  psi <- getPsi
+  return (c, psi)
+  where    
+    whileD f = go
+      where
+        go = do
+          d <- getD
+          case Set.maxView d of
+            Just (p, d') -> do
+              putD d'
+              f p
+              go
+            Nothing ->
+              return ()
+    forAllD a l f = do
+      d <- getD
+      forM_ (toList d) $ \ p ->
+        case p of
+          Var a' :. (l', tau') | a == a' && l == l' ->
+            f tau'
+          _ ->
+            return ()
+    getD =
+      gets normalizeD
+    putD d' =
+      modify (\ s -> s { normalizeD = d' })
+    modifyD f =
+      modify (\ s -> s { normalizeD = f (normalizeD s) })
+    getC =
+      gets normalizeC
+    modifyC f =
+      modify (\ s -> s { normalizeC = f (normalizeC s) })
+    getPsi =
+      gets normalizePsi
+    modifyPsi f =
+      modify (\ s -> s { normalizePsi = f (normalizePsi s) })
+    evalStateT' =
+      flip evalStateT initS
+    u = flip Set.insert
+    (\\) = flip Set.delete
+    initS =
+      NormalizeS { normalizeD = d
+                 , normalizeC = mempty
+                 , normalizePsi = phi
+                 }
+
+data NormalizeS =
+  NormalizeS { normalizeD :: Constraint
+             , normalizeC :: Constraint
+             , normalizePsi :: Substitution
+             }
 
 fresh :: UniqueMonad m => m Type
 fresh = liftM Type.Var freshIdent
 
-instantiate :: UniqueMonad m => TypeScheme -> m Type
-instantiate (Forall alphas tau) = do
-  (mconcat -> s) <- forM alphas $ \ alpha -> do
+instantiate :: UniqueMonad m => TypeScheme -> m (Constraint, Type)
+instantiate (Forall alphas c tau) = do
+  psi <- liftM (Substitution . mconcat) $ forM alphas $ \ alpha -> do
     beta <- fresh
-    return $ Substitution $ singleton alpha beta
-  return $ s $$ tau
+    return (IdentMap.singleton alpha beta)
+  return (psi $$ c, psi $$ tau)
 
-generalize :: Monad m => TypeEnvironment -> Type -> m TypeScheme
-generalize gamma tau = return $ poly alpha tau
+generalize :: Monad m =>
+              Constraint ->
+              TypeEnvironment ->
+              Type ->
+              m (Constraint, TypeScheme)
+generalize c gamma tau =
+  return (c, poly alpha c tau)
   where
-    alpha = IdentSet.toList $ typeVars tau \\ typeVars gamma
+    alpha = toList $ (typeVars tau <> typeVars c) \\ typeVars gamma
 
 lookup :: ( Pretty a
           , MonadError TypeException m
@@ -185,12 +297,9 @@ lookup :: ( Pretty a
           , MonadWriter Msgs m
           , UniqueMonad m
           ) => Ident -> IdentMap TypeScheme -> m TypeScheme
-lookup x gamma =
-  case IdentMap.lookup x gamma of
-    Nothing ->
-      throwError VarNotFound
-    Just sigma ->
-      return sigma
+lookup x =
+  maybe (throwError VarNotFound) return .
+  IdentMap.lookup x
 
 deleteList :: [Ident] -> IdentMap a -> IdentMap a
 deleteList x gamma = foldr delete gamma x
@@ -198,13 +307,13 @@ deleteList x gamma = foldr delete gamma x
 ($\) :: Substitution -> Type -> Substitution
 Substitution s $\ tau = Substitution $ deleteList alpha s
   where
-    alpha = IdentSet.toList $ typeVars tau
+    alpha = toList $ typeVars tau
 infixl 4 $\ --
 
 ($|) :: Substitution -> IdentSet -> Substitution
 Substitution s $| xs = Substitution $ intersection s xs'
   where
-    xs' = IdentMap.fromList $ zip (IdentSet.toList xs) $ repeat ()
+    xs' = IdentMap.fromList $ zip (toList xs) $ repeat ()
 infixl 4 $|
 
 class TypeVars a where
@@ -220,6 +329,7 @@ instance TypeVars Type where
       Bool -> mempty
       String -> mempty
       Void -> mempty
+      Record xs -> mconcat . map typeVars . toList $ xs
       Tuple xs -> mconcat . map typeVars $ xs
       Cont a -> typeVars a
 
@@ -227,54 +337,19 @@ instance TypeVars TypeEnvironment where
   typeVars = mconcat . map typeVars . IdentMap.elems
 
 instance TypeVars TypeScheme where
-  typeVars (Forall alpha tau) = typeVars tau \\ IdentSet.fromList alpha
+  typeVars (Forall alpha _ tau) = typeVars tau \\ IdentSet.fromList alpha
 
-{-
-normalize :: MonadLogger Message m => Constraints -> Subst -> m (Constraints, Subst)
-normalize = go
-  where
-    go d phi = evalStateT normalize' (d, c, psi)
-      where
-        c = mempty
-        psi = phi
+instance TypeVars Constraint where
+  typeVars = mconcat . map typeVars . toList
 
-    getD = gets $ \ (d, _, _) -> d
-    putD d = modify $ \ (_, c, psi) -> (d, c, psi)
-    modifyD f = modify $ \ (d, c, psi) -> (f d, c, psi)
-    getC = gets $ \ (_, c, _) -> c
-    getPsi = gets $ \ (_, _, psi) -> psi
-    modifyPsi f = modify $ \ (d, c, psi) -> (d, c, f psi)
+instance TypeVars Predicate where
+  typeVars = go
+    where
+      go (a :. (_l, b)) = typeVars a <> typeVars b
+      go (a := b) = typeVars a <> typeVars b
 
-    normalize' = do
-      whileJust_ (liftM uncons getD) $ \ (p, d) -> do
-        putD d
-        case p of
-          tau :==: tau' -> do
-            psi <- getPsi
-            psi' <- mgu (apply psi tau) (apply psi tau')
-            modifyD $ apply psi'
-            modifyPsi $ flip compose psi'
-      c <- getC
-      psi <- getPsi
-      return (c, psi)
-
-whileJust_ :: Monad m => m (Maybe a) -> (a -> m b) -> m ()
-whileJust_ p f = go
-  where
-    go = do
-      x <- p
-      maybe nothing just x
-      where
-        nothing =
-          return ()
-        just x = do
-          _ <- f x
-          go
-
-uncons :: [a] -> Maybe (a, [a])
-uncons [] = Nothing
-uncons (x:xs) = Just (x, xs)
--}
+instance TypeVars a => TypeVars [a] where
+  typeVars = mconcat . map typeVars
 
 mgu :: ( Pretty a
        , MonadReader a m
@@ -285,7 +360,7 @@ mgu tau1 tau2 =
     (Type.Var a, Type.Var b) | a == b ->
       return mempty
     (Type.Var x, _) ->
-      if IdentSet.member x (typeVars tau2)
+      if x `member` typeVars tau2
       then do
         a <- ask
         tell $ Msg.singleton $ mkErrorMsg a $ OccursCheckFailed tau1 tau2
@@ -323,7 +398,7 @@ class Apply a where
 infixr 0 $$
 
 instance Apply Substitution where
-  s1 $$ Substitution s2 = Substitution $ (s1 $$) <$> s2
+  s1 $$ Substitution s2 = Substitution $ fmap (s1 $$) s2
 
 instance Apply Type where
   s $$ x =
@@ -335,6 +410,7 @@ instance Apply Type where
       Double -> Double
       String -> String
       Void -> Void
+      Record xs -> Record . fmap (s $$) $ xs
       Tuple xs -> Tuple $ s $$ xs
       Cont a -> Cont $ s $$ a
 
@@ -342,9 +418,21 @@ instance Apply TypeEnvironment where
   s $$ gamma = (s $$) <$> gamma
 
 instance Apply TypeScheme where
-  Substitution s $$ Forall alpha tau = Forall alpha $ s' $$ tau
+  Substitution s $$ Forall alpha c tau =
+    Forall alpha (s' $$ c) (s' $$ tau)
     where
       s' = Substitution $ deleteList alpha s
+
+instance Apply Predicate where
+  s $$ p = go p
+    where
+      go (a :. (l, b)) =
+        (s $$ a) :. (l, s $$ b)
+      go (tau1 := tau2) =
+        s $$ tau1 := s $$ tau2
+
+instance Apply Constraint where
+  s $$ c = Set.map (s $$) c
 
 instance Apply a => Apply [a] where
   s $$ xs = map (s $$) xs
@@ -354,7 +442,8 @@ s1 $. s2 = (s1 $$ s2) <> s1
 infixr 9 $.
 
 mono :: Type -> TypeScheme
-mono = Forall mempty
 
-poly :: [Type.Var] -> Type -> TypeScheme
+mono = Forall mempty mempty
+
+poly :: [Type.Var] -> Constraint -> Type -> TypeScheme
 poly = Forall

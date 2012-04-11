@@ -25,11 +25,12 @@ import Data.Maybe
 
 import Language.Glyph.Hoopl
 import Language.Glyph.Ident
-import Language.Glyph.Syntax as X (Lit (..),
+import Language.Glyph.Syntax as X (MethodName,
+                                   Lit (..),
                                    Name,
                                    NameView,
                                    ident,
-                                   prettyNameView)
+                                   prettyText)
 
 import Text.PrettyPrint.Free hiding (encloseSep, tupled)
 
@@ -109,6 +110,7 @@ data Expr a where
   VarE :: Name -> Expr a
   FunE :: Ident -> [Name] -> Graph (Insn a) O C -> Expr a
   ApplyE :: ExprIdent -> [ExprIdent] -> Expr a
+  ApplyMethodE :: ExprIdent -> MethodName -> [ExprIdent] -> Expr a
   AssignE :: Name -> ExprIdent -> Expr a
 
 deriving instance Typeable1 Expr
@@ -121,6 +123,7 @@ instance Functor Expr where
       go (VarE name) = VarE name
       go (FunE x params graph) = FunE x params (mapGraph' f graph)
       go (ApplyE x xs) = ApplyE x xs
+      go (ApplyMethodE x y xs) = ApplyMethodE x y xs
       go (AssignE name x) = AssignE name x
 
 type ExprIdent = Ident
@@ -203,6 +206,11 @@ instance Pretty (Expr a) where
         rbrace
       go (ApplyE expr exprs) =
         pretty expr <> tupled (map pretty exprs)
+      go (ApplyMethodE expr methodName exprs) =
+        pretty expr <>
+        char '.' <>
+        prettyText methodName <>
+        tupled (map pretty exprs)
       go (AssignE name x) =
         pretty name <+> char '=' <+> pretty x
 

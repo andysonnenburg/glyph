@@ -70,7 +70,7 @@ FINALLY { (view -> Token.Finally) }
 %left ','
 %right '='
 %right '!'
-%left '(' ')'
+%left '(' ')' '.'
 
 %%
 
@@ -109,6 +109,7 @@ expr :: { Expr }
   | void { $1 }
   | not { $1 }
   | apply { $1 }
+  | applyMethod { $1 }
   | assign { $1 }
   | '(' expr ')' { $2 }
 
@@ -178,6 +179,9 @@ not :: { Expr }
 apply :: { Expr }
   : expr '(' arguments ')' { expr $1 $4 (apply $1 $3) }
 
+applyMethod :: { Expr }
+  : expr '.' methodName '(' arguments ')' { expr $1 $6 (applyMethod $1 $3 $5) }
+
 assign :: { Expr }
   : nameWithLoc '=' expr { expr $1 $3 (assign (extract $1) $3) }
 
@@ -189,6 +193,9 @@ name :: { Name }
 
 nameWithLoc :: { WithLoc Name }
   : NAME {% newNameWithLoc $1 }
+
+methodName :: { MethodName }
+  : NAME { methodName $1 }
 
 arguments :: { [Expr] }
   : sepBy(expr, ',') { $1 }
@@ -296,10 +303,13 @@ not' = NotE
 apply :: Expr -> [Expr] -> ExprView
 apply = ApplyE
 
+applyMethod :: Expr -> MethodName -> [Expr] -> ExprView
+applyMethod = ApplyMethodE
+
 assign :: Name -> Expr -> ExprView
 assign = AssignE
 
-name :: Token -> NameView
+name :: Token -> Text
 name (view -> Name x) = x
 
 stmt :: (HasLoc a, HasLoc b) => a -> b -> StmtView -> Stmt
@@ -320,6 +330,9 @@ newNameWithLoc :: UniqueMonad m => Token -> m (WithLoc Name)
 newNameWithLoc x = do
   x' <- newName' x
   return $ WithLoc x' $ loc x
+
+methodName :: Token -> MethodName
+methodName = name
 
 data WithLoc a = WithLoc a Loc
 

@@ -43,13 +43,7 @@ fromStmts :: ( Semigroup a
              , MonadError ContFlowException m
              , UniqueMonad m
              ) => [Glyph.Stmt a] -> m (Graph (Insn a) O C)
-fromStmts = fromFun []
-
-fromFun :: ( Semigroup a
-           , MonadError ContFlowException m
-           , UniqueMonad m
-           ) => [Ident] -> [Glyph.Stmt a] -> m (Graph (Insn a) O C)
-fromFun params =
+fromStmts =
   maybe fromEmpty fromNonEmpty . nonEmpty
   where
     return = Monad.return
@@ -137,7 +131,7 @@ tellStmt = tellStmt'
       x <- tellExprInsn . AssignE name =<< tellExpr expr
       tellInsn $ F $ ExprS x
     go (Glyph.FunDeclS name params stmts) =
-      tellInsn =<< FunDeclS name params <$> fromFun (map ident params) stmts
+      tellInsn =<< FunDeclS name params <$> fromStmts stmts
     go (Glyph.ReturnS Nothing) = do
       x <- tellExprInsn $ LitE VoidL
       join $ asks $ tellBeforeReturn . finally
@@ -202,8 +196,19 @@ tellStmt = tellStmt'
     go (Glyph.BlockS stmts) =
       mapM_ tellStmt stmts
 
+    localCatchLabel catchLabel =
+      local (\ r -> r { maybeCatchLabel = Just catchLabel })
+
     localFinally finallyStmt m = do
-      local f $ localCatch finallyStmt m
+      (nextLabel, catchLabel) <- freshLabels
+      local f $ localCatchLabel catchLabel $ do
+        _ <- m
+        tellInsn $ GotoS nextLabel
+      x <- freshIdent
+      tellInsn $ Catch x catchLabel
+      tellStmt finallyStmt
+      tellInsn $ ThrowS x
+      tellInsn $ Label nextLabel
       tellStmt finallyStmt
       where
         f r@R { finally } =
@@ -226,17 +231,6 @@ tellStmt = tellStmt'
                 tellFinally =
                   local (const r) $ tellStmt finallyStmt
 
-    localCatch catchStmt m = do
-      (nextLabel, catchLabel) <- freshLabels
-      local (\ r -> r { maybeCatchLabel = Just catchLabel }) $ do
-        _ <- m
-        tellInsn $ GotoS nextLabel
-      x <- freshIdent
-      tellInsn $ Catch x catchLabel
-      tellStmt catchStmt
-      tellInsn $ ThrowS x
-      tellInsn $ Label nextLabel
-
 tellExpr :: ( MonadError ContFlowException m
             , MonadReader (R a) m
             , Semigroup a
@@ -253,9 +247,20 @@ tellExpr = tellExpr'
     go (Glyph.VarE name) =
       tellExprInsn $ VarE name
     go (Glyph.FunE x params stmts) =
-      tellExprInsn =<< FunE x params <$> fromFun (map ident params) stmts
+      tellExprInsn =<<
+      FunE x params <$>
+      fromStmts stmts
     go (Glyph.ApplyE expr exprs) =
-      tellExprInsn =<< ApplyE <$> tellExpr expr <*> mapM tellExpr exprs
+      tellExprInsn =<<
+      ApplyE <$>
+      tellExpr expr <*>
+      mapM tellExpr exprs
+    go (Glyph.ApplyMethodE expr methodName exprs) =
+      tellExprInsn =<<
+      ApplyMethodE <$>
+      tellExpr expr <*>
+      pure methodName <*>
+      mapM tellExpr exprs
     go (Glyph.AssignE name expr) =
       tellExprInsn . AssignE name =<< tellExpr expr
 

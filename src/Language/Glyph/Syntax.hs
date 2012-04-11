@@ -10,11 +10,12 @@ module Language.Glyph.Syntax
        , StmtView (..)
        , Expr (..)
        , ExprView (..)
+       , MethodName
        , Lit (..)
        , Name (..)
        , NameView
        , ident
-       , prettyNameView
+       , prettyText
        ) where
 
 import Control.Comonad
@@ -52,7 +53,10 @@ data ExprView a
   | VarE Name
   | FunE Ident [Name] [Stmt a]
   | ApplyE (Expr a) [Expr a]
+  | ApplyMethodE (Expr a) MethodName [Expr a]
   | AssignE Name (Expr a) deriving (Show, Typeable, Data, Functor)
+
+type MethodName = Text
 
 data Lit
   = BoolL Bool
@@ -75,12 +79,12 @@ instance Show Lit where
 data Name = Name Ident NameView deriving (Show, Typeable, Data)
 
 instance Pretty Name where
-  pretty = prettyNameView . view
+  pretty = prettyText . view
 
 type NameView = Text
 
-prettyNameView :: NameView -> Doc e
-prettyNameView = pretty . text . Text.unpack
+prettyText :: Text -> Doc e
+prettyText = pretty . text . Text.unpack
 
 instance View (Stmt a) (StmtView a) where
   view (Stmt _ x) = x

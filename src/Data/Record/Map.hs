@@ -6,6 +6,7 @@
   , FlexibleInstances
   , FunctionalDependencies
   , GADTs
+  , GeneralizedNewtypeDeriving
   , KindSignatures
   , MultiParamTypeClasses
   , OverlappingInstances
@@ -29,10 +30,9 @@ module Data.Record.Map
 import Data.Hashable
 import Data.HashMap.Strict (HashMap, (!))
 import qualified Data.HashMap.Strict as Map
-import Data.Typeable.Internal
+import Data.Typeable
 
 import GHC.Exts (Any)
-import GHC.Fingerprint
 import Unsafe.Coerce as Unsafe
 
 data Record (fields :: [(*, *)])
@@ -113,13 +113,10 @@ infixr 5 #|
 
 type Map = HashMap
 
-newtype Label = Label TypeRep deriving Eq
+newtype Label = Label TypeRep deriving (Eq, Hashable)
 
 toLabel :: Typeable label => label -> Label
 toLabel = Label . typeOf
-
-instance Hashable Label where
-  hash (Label (TypeRep (Fingerprint w1 w2) _ _)) = hash (w1, w2)
 
 data Value = Value { unValue :: Any }
 

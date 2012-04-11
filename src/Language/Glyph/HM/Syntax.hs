@@ -4,7 +4,8 @@
   , MultiParamTypeClasses
   , ViewPatterns #-}
 module Language.Glyph.HM.Syntax
-       ( Exp (..)
+       ( module X
+       , Exp (..)
        , ExpView (..)
        , Lit (..)
        , varE
@@ -15,6 +16,8 @@ module Language.Glyph.HM.Syntax
        , mkTuple
        , tupleE
        , select
+       , access
+       , accessE
        , undefined'
        , asTypeOf'
        , fix'
@@ -30,7 +33,8 @@ import Control.Monad.Reader
 import Data.Data
 
 import Language.Glyph.Ident
-import Language.Glyph.Syntax (Lit (..))
+import Language.Glyph.Syntax (Lit (..), prettyText)
+import Language.Glyph.Type as X (Label)
 import Language.Glyph.View
 
 import Text.PrettyPrint.Free hiding (encloseSep, tupled)
@@ -66,6 +70,7 @@ data ExpView a
 
   | MkTuple Int
   | Select Int Int
+  | Access Label
   | Undefined
   | AsTypeOf
   | Fix
@@ -73,6 +78,9 @@ data ExpView a
   | Return
   | Then
   | CallCC deriving (Typeable, Data, Functor)
+
+instance Show (ExpView a) where
+  show = show . pretty
 
 instance Pretty (ExpView a) where
   pretty = prettyDefault
@@ -112,6 +120,8 @@ instance PrettyPrec (ExpView a) where
         text "mkTuple" <> char '_' <> pretty x
       go (Select a b) =
         text "select" <> char '_' <> pretty a <> char '_' <> pretty b
+      go (Access l) =
+        char '.' <> prettyText l
       go Undefined =
         text "undefined"
       go AsTypeOf =
@@ -179,6 +189,14 @@ select :: MonadReader a m => Int -> Int -> m (Exp a)
 select x y = do
   a <- ask
   return $ Exp a $ Select x y
+
+access :: MonadReader a m => Label -> m (Exp a)
+access l = do
+  a <- ask
+  return $ Exp a $ Access l
+
+accessE :: MonadReader a m => Label -> m (Exp a) -> m (Exp a)
+accessE l x = appE (access l) x
 
 undefined' :: MonadReader a m => m (Exp a)
 undefined' = do

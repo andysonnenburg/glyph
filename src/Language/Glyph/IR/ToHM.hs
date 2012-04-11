@@ -9,7 +9,7 @@ module Language.Glyph.IR.ToHM
        ( toHM
        ) where
 
-import Compiler.Hoopl
+import Compiler.Hoopl hiding (Label)
 import Control.Monad.Reader
 
 import Data.Graph (flattenSCC, stronglyConnCompR)
@@ -17,7 +17,7 @@ import Data.Maybe
 import Data.Monoid
 
 import Language.Glyph.Hoopl
-import Language.Glyph.HM.Syntax (Exp)
+import Language.Glyph.HM.Syntax (Exp, Label)
 import qualified Language.Glyph.HM.Syntax as HM
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap, (!))
@@ -183,6 +183,8 @@ exprToExp = go
       varE x
     go (ApplyE x xs) =
       appE (varE x) (tupleE (map varE xs))
+    go (ApplyMethodE x method xs) =
+      appE (accessE method (varE x)) (tupleE (map varE xs))
     go (AssignE (ident -> x) y) =
       varE x `asTypeOf'` varE y
 
@@ -225,6 +227,9 @@ selectList x = go
 
 select :: Monad m => Int -> Int -> T a sym m (Exp a)
 select i l = liftR0 $ HM.select i l
+
+accessE :: Monad m => Label -> T a sym m (Exp a) -> T a sym m (Exp a)
+accessE l = liftR1 $ HM.accessE l
 
 undefined' :: Monad m => T a sym m (Exp a)
 undefined' = liftR0 HM.undefined'

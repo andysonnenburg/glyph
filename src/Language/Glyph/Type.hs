@@ -17,6 +17,7 @@ module Language.Glyph.Type
        , prettyLabel
        ) where
 
+import Control.DeepSeq
 import Control.Monad.State
 import Control.Monad.Writer hiding ((<>))
 
@@ -51,10 +52,11 @@ showDefault = show . pretty
 data TypeScheme = Forall [Var] Constraint Type
 
 instance Pretty' TypeScheme where
-  pretty' (Forall _alpha c tau) = do
+  pretty' (Forall alpha c tau) = do
+    alpha' <- mapM pretty' alpha
     c' <- pretty' c
     tau' <- pretty' tau
-    return $ c' <+> text "=>" <+> tau'
+    return $ hsep [text "forall", hsep alpha', char '.', c', text "=>", tau']
 
 instance Pretty TypeScheme where
   pretty = prettyDefault
@@ -138,6 +140,21 @@ instance Pretty' Type where
         a' <- pretty' a
         return $ text "Cont#" <+> a'
 
+instance NFData Type where
+  rnf (Var x) = rnf x
+  rnf (a :->: b) = rnf a `seq`
+                   rnf b `seq`
+                   ()
+  rnf Bool = ()
+  rnf Int = ()
+  rnf Double = ()
+  rnf String = ()
+  rnf Void = ()
+  rnf (Record r) = rnf r
+  
+  rnf (Tuple xs) = rnf xs
+  rnf (Cont a) = rnf a
+
 type Var = Ident
 
 instance Pretty' Var where
@@ -208,6 +225,15 @@ instance Pretty' Predicate where
         a' <- pretty' a
         b' <- pretty' b
         return $ a' <+> char '=' <+> b'
+
+instance NFData Predicate where
+  rnf (a := b) = rnf a `seq`
+                 rnf b `seq`
+                 ()
+  rnf (a :. (l, b)) = rnf a `seq`
+                      rnf l `seq`
+                      rnf b `seq`
+                      ()
 
 type Constraint = Set Predicate
 

@@ -147,13 +147,7 @@ glyph Glyph {..} =
    -- Assemble
    
    (\ _ ->
-     return ())) --  >=>
-   -- (\ (stmts, symtab) -> do
-   --   hm <- toHM ir symtab
-   --   when dumpHM $
-   --     liftIO $ print hm
-   --   _ <- inferType hm
-   --   return ()))
+     return ()))
 
 idents :: forall a . Data a => [Stmt a] -> IdentMap (Record '[])
 idents = everything (<>) (mempty `mkQ` queryExpr `extQ` queryName)
@@ -162,7 +156,6 @@ idents = everything (<>) (mempty `mkQ` queryExpr `extQ` queryName)
     queryExpr (FunE x _ _) = IdentMap.singleton x Record.empty
     queryExpr _ = mempty
     queryName (ident -> x) = IdentMap.singleton x Record.empty
-    -- fromStmts' = runErrorT . fromStmts
 
 memptyLoc :: Loc
 memptyLoc = Loc initPos initPos

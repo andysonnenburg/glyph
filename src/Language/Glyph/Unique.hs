@@ -50,8 +50,8 @@ runUniqueSupplyT = flip evalStateT 0 . unUniqueSupplyT
 instance Monad m => UniqueMonad (UniqueSupplyT m) where
   freshUnique = UniqueSupplyT $ do
     i <- get
-    put $ i + 1
-    return $ intToUnique i
+    put $! i + 1
+    return $! intToUnique i
 
 instance (Error e, UniqueMonad m) => UniqueMonad (ErrorT e m) where
   freshUnique = lift freshUnique

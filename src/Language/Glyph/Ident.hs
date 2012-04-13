@@ -6,6 +6,7 @@ module Language.Glyph.Ident
 
 import Compiler.Hoopl
 import Compiler.Hoopl.GHC
+import Control.DeepSeq
 import Control.Monad
 
 import Data.Data
@@ -33,6 +34,8 @@ instance Data Ident where
 
 instance Hashable Ident where
   hash = uniqueToInt . unIdent
+
+instance NFData Ident
 
 freshIdent :: UniqueMonad m => m Ident
 freshIdent = liftM Ident freshUnique

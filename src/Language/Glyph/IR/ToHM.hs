@@ -59,7 +59,8 @@ toExp m (toList -> xs) = do
       f (SomeNode (Expr a _ _ _)) = mappend a
       f _ = id
 
-funToExp :: ( Select CallSet IdentSet sym
+funToExp :: ( Monoid a
+            , Select CallSet IdentSet sym
             , UniqueMonad m
             ) => [Ident] -> Graph (Insn a) O C -> T a sym m (Exp a)
 funToExp ps (toList -> xs) = do
@@ -70,7 +71,8 @@ funToExp ps (toList -> xs) = do
       cc <- freshIdent
       absE cc (localCC cc $ insnsToExp xs)
 
-insnsToExp :: ( Select CallSet IdentSet sym
+insnsToExp :: ( Monoid a
+              , Select CallSet IdentSet sym
               , UniqueMonad m
               ) => [SomeInsn a] -> T a sym m (Exp a)
 insnsToExp xs = vars . funs $ do
@@ -114,7 +116,8 @@ insnsToExp xs = vars . funs $ do
       map (toLet . flattenSCC) .
       stronglyConnCompR <$> callGraph xs
       where
-        foldr' f as b = foldr f b as
+        foldr' f as b =
+          foldr f b as
         infixl 4 <$>
         (f <$> a) b = do
           a' <- a
@@ -123,19 +126,26 @@ insnsToExp xs = vars . funs $ do
         fst' (x, _, _) = x
         snd' (_, x, _) = x
         let' (xs', e1) e2 = do
+          let a = mconcat . map fst $ e1
           x <- freshIdent
           y <- freshIdent
-          letE x (fix' (absE y $ selectList y xs' $ tupleE e1)) $
-            selectList x xs' e2
+          let e1' = map snd e1
+          localA a $
+            letE x (fix' (absE y $ selectList y xs' $ tupleE e1')) $
+              selectList x xs' e2
 
 callGraph :: forall a sym m .
-             (Select CallSet IdentSet sym, UniqueMonad m) =>
-             [SomeInsn a] -> T a sym m [(T a sym m (Exp a), Ident, [Ident])]
+             ( Monoid a
+             , Select CallSet IdentSet sym
+             , UniqueMonad m
+             ) =>
+             [SomeInsn a] ->
+             T a sym m [((a, T a sym m (Exp a)), Ident, [Ident])]
 callGraph = concatMap' go'
   where
     concatMap' f = liftM mconcat . mapM f
     go' (SomeNode i) = go i
-    go :: forall e x . Insn a e x -> T a sym m [(T a sym m (Exp a), Ident, [Ident])]
+    go :: forall e x . Insn a e x -> T a sym m [((a, T a sym m (Exp a)), Ident, [Ident])]
     go (Stmt a (FunDeclS (ident -> x) (map ident -> params) graph)) =
       fun a x params graph
     go (Expr a _ (FunE x (map ident -> params) graph) _) =
@@ -143,11 +153,11 @@ callGraph = concatMap' go'
     go _ =
       return mempty
     fun :: a -> Ident -> [Ident] -> Graph (Insn a) O C ->
-           T a sym m [(T a sym m (Exp a), Ident, [Ident])]
+           T a sym m [((a, T a sym m (Exp a)), Ident, [Ident])]
     fun a x params graph = do
       m <- askSymtab
       let xs = IdentSet.toList $ (m ! x)#.callSet
-      return [(e, x, xs)]
+      return [((a, e), x, xs)]
         where
           e = localA a $ funToExp params graph
 

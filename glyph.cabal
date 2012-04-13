@@ -31,9 +31,3 @@ executable glyph
     deepseq
   build-tools: alex >= 3, happy
   ghc-options: -Wall
-
-test-suite add-free-vars
-  type: detailed-0.9
-  test-module: Language.Glyph.AddFreeVars.Test
-  hs-source-dirs: tests
-  build-depends: base, Cabal >= 1.10.0.0

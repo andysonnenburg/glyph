@@ -1,5 +1,8 @@
 {
-{-# LANGUAGE NoMonomorphismRestriction, ViewPatterns #-}
+{-# LANGUAGE
+    NoMonomorphismRestriction
+  , OverloadedStrings 
+  , ViewPatterns #-}
 module Language.Glyph.Parse.Internal
        ( parse
        ) where
@@ -33,10 +36,6 @@ import Prelude hiding (break, lex)
 VAR { (view -> Var) }
 FN { (view -> Fn) }
 NAME { (view -> Name _) }
-'.' { (view -> Period) }
-',' { (view -> Comma) }
-'(' { (view -> LeftParenthesis) }
-')' { (view -> RightParenthesis) }
 '{' { (view -> LeftBrace) }
 '}' { (view -> RightBrace) }
 ';' { (view -> Semicolon) }
@@ -47,7 +46,6 @@ INT { (view -> Int _) }
 DOUBLE { (view -> Double _) }
 STRING { (view -> String _) }
 VOID { (view -> Token.Void) }
-'!' { (view -> Token.Bang) }
 RETURN { (view -> Token.Return) }
 IF { (view -> Token.If) }
 ELSE { (view -> Token.Else) }
@@ -57,7 +55,15 @@ CONTINUE { (view -> Token.Continue) }
 THROW { (view -> Token.Throw) }
 TRY { (view -> Token.Try) }
 FINALLY { (view -> Token.Finally) }
-'=' { (view -> Equals) }
+'(' { (view -> LeftParenthesis) }
+')' { (view -> RightParenthesis) }
+'.' { (view -> Period) }
+'!' { (view -> Bang) }
+'+' { (view -> Plus) }
+'-' { (view -> Minus) }
+'==' { (view -> Equals) }
+'=' { (view -> Assign) }
+',' { (view -> Comma) }
 
 %name stmts
 
@@ -69,6 +75,8 @@ FINALLY { (view -> Token.Finally) }
 
 %left ','
 %right '='
+%left '=='
+%left '+' '-'
 %right '!'
 %left '(' ')' '.'
 
@@ -107,9 +115,12 @@ expr :: { Expr }
   | double { $1 }
   | string { $1 }
   | void { $1 }
-  | not { $1 }
   | apply { $1 }
   | applyMethod { $1 }
+  | not { $1 }
+  | plus { $1 }
+  | minus { $1 }
+  | equals { $1 }
   | assign { $1 }
   | '(' expr ')' { $2 }
 
@@ -173,14 +184,23 @@ string :: { Expr }
 void :: { Expr }
   : VOID { expr $1 $1 void }
 
-not :: { Expr }
-  : '!' expr { expr $1 $2 (not' $2) }
-
 apply :: { Expr }
   : expr '(' arguments ')' { expr $1 $4 (apply $1 $3) }
 
 applyMethod :: { Expr }
   : expr '.' methodName '(' arguments ')' { expr $1 $6 (applyMethod $1 $3 $5) }
+
+not :: { Expr }
+  : '!' expr { expr $1 $2 (not' $2) }
+
+plus :: { Expr }
+  : expr '+' expr { expr $1 $3 (applyMethod $1 "plus" [$3]) }
+
+minus :: { Expr }
+  : expr '-' expr { expr $1 $3 (applyMethod $1 "minus" [$3]) }
+
+equals :: { Expr }
+  : expr '==' expr { expr $1 $3 (applyMethod $1 "equals" [$3]) }
 
 assign :: { Expr }
   : nameWithLoc '=' expr { expr $1 $3 (assign (extract $1) $3) }

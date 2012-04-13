@@ -28,10 +28,6 @@ data TokenView
   = Var
   | Fn
   | Name Text
-  | Period
-  | Comma
-  | LeftParenthesis
-  | RightParenthesis
   | LeftBrace
   | RightBrace
   | Colon
@@ -42,7 +38,6 @@ data TokenView
   | Double Double
   | String Text
   | Void
-  | Bang
   | Return
   | If
   | Else
@@ -52,7 +47,15 @@ data TokenView
   | Throw
   | Try
   | Finally
+  | LeftParenthesis
+  | RightParenthesis
+  | Period
+  | Bang
+  | Plus
+  | Minus
   | Equals
+  | Assign
+  | Comma
   | EOF
 
 instance Show TokenView where
@@ -64,10 +67,6 @@ instance Pretty TokenView where
       Var -> text "var"
       Fn -> text "fn"
       Name a -> char '`' <> text (Text.unpack a) <> char '\''
-      Period -> char '.'
-      Comma -> char ','
-      LeftParenthesis -> char '('
-      RightParenthesis -> char ')'
       LeftBrace -> char '{'
       RightBrace -> char '}'
       Colon -> char ':'
@@ -78,7 +77,6 @@ instance Pretty TokenView where
       Double a -> pretty a
       String a -> dquotes . text . Text.unpack $ a
       Void -> text "void"
-      Bang -> char '!'
       Return -> text "return"
       If -> text "if"
       Else -> text "else"
@@ -88,7 +86,15 @@ instance Pretty TokenView where
       Throw -> text "throw"
       Try -> text "try"
       Finally -> text "finally"
-      Equals -> char '='
+      LeftParenthesis -> char '('
+      RightParenthesis -> char ')'
+      Period -> char '.'
+      Bang -> char '!'
+      Plus -> char '+'
+      Minus -> char '-'
+      Equals -> text "=="
+      Assign -> char '='
+      Comma -> char ','
       EOF -> text "end" <+> text "of" <+> text "file"
 
 loc :: Token -> Loc

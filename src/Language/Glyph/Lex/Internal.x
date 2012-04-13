@@ -57,16 +57,19 @@ $white+ ;
   "true" { true }
   "false" { false }
   "void" { void }
-  "!" { bang }
-  "." { period }
-  "," { comma }
-  "(" { leftParenthesis }
-  ")" { rightParenthesis }
   "{" { leftBrace }
   "}" { rightBrace }
   ":" { colon }
   ";" { semicolon }
-  "=" { equals }
+  "(" { leftParenthesis }
+  ")" { rightParenthesis }
+  "." { period }
+  "!" { bang }
+  "+" { plus }
+  "-" { minus }
+  "==" { equals }
+  "=" { assign }
+  "," { comma }
   @int { int }
   $negative @int { negativeInt }
   @name { name }
@@ -83,37 +86,37 @@ fn :: MonadError ParseException m => Action m
 fn = special Fn
 
 int :: MonadError ParseException m => Action m
-int l s =
-  return . Token l . Int . fromIntegral . int' s
+int l s n =
+  return .
+  Token l .
+  Int .
+  fromIntegral .
+  int' $
+  take' n s
 
 negativeInt :: MonadError ParseException m => Action m
-negativeInt l s =
-  return . Token l . Int . fromIntegral . negate . int' s
+negativeInt l s n = 
+  return .
+  Token l .
+  Int .
+  fromIntegral .
+  negate .
+  int' .
+  ByteString.tail $
+  take' n s
 
-int' :: ByteString -> Int -> Integer
-int' s n = ByteString.foldl' f 0 $ ByteString.take n' s
+int' :: ByteString -> Integer
+int' = ByteString.foldl' f 0
   where
     f a b = a * 10 + toInteger (digitToInt b)
-    n' = fromIntegral n
 
 name :: MonadError ParseException m => Action m
 name l s n = do
-  s' <- fromLazyByteString $ ByteString.take n' $ s
+  s' <- fromLazyByteString $ take' n s
   return $ Token l (Name s')
-  where
-    n' = fromIntegral n
 
-period :: MonadError ParseException m => Action m
-period = special Period
-
-comma :: MonadError ParseException m => Action m
-comma = special Comma
-
-leftParenthesis :: MonadError ParseException m => Action m
-leftParenthesis = special LeftParenthesis
-
-rightParenthesis :: MonadError ParseException m => Action m
-rightParenthesis = special RightParenthesis
+take' :: Int -> ByteString -> ByteString
+take' n = ByteString.take (fromIntegral n)
 
 leftBrace :: MonadError ParseException m => Action m
 leftBrace = special LeftBrace
@@ -135,9 +138,6 @@ false = special Token.False
 
 void :: MonadError ParseException m => Action m
 void = special Token.Void
-
-bang :: MonadError ParseException m => Action m
-bang = special Bang
 
 return' :: MonadError ParseException m => Action m
 return' = special Return
@@ -166,6 +166,30 @@ try = special Try
 finally :: MonadError ParseException m => Action m
 finally = special Finally
 
+leftParenthesis :: MonadError ParseException m => Action m
+leftParenthesis = special LeftParenthesis
+
+rightParenthesis :: MonadError ParseException m => Action m
+rightParenthesis = special RightParenthesis
+
+period :: MonadError ParseException m => Action m
+period = special Period
+
+bang :: MonadError ParseException m => Action m
+bang = special Bang
+
+plus :: MonadError ParseException m => Action m
+plus = special Plus
+
+minus :: MonadError ParseException m => Action m 
+minus = special Minus
+
 equals :: MonadError ParseException m => Action m
 equals = special Equals
+
+assign :: MonadError ParseException m => Action m 
+assign = special Assign
+
+comma :: MonadError ParseException m => Action m
+comma = special Comma
 }

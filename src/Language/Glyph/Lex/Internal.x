@@ -16,7 +16,9 @@ module Language.Glyph.Lex.Internal
 import Control.Monad.Error hiding (void)
 
 import Data.ByteString.Lazy (ByteString)
-import qualified Data.ByteString.Lazy as ByteString
+import qualified Data.ByteString.Lazy as ByteString hiding (foldl')
+import qualified Data.ByteString.Lazy.Char8 as ByteString
+import Data.Char (digitToInt)
 
 import Language.Glyph.Loc
 import Language.Glyph.Lex.Alex
@@ -31,7 +33,9 @@ import Prelude hiding (break, lex)
 
 $alpha = [a-zA-Z_]
 $numeric = [0-9]
+$negative = \-
 
+@int = $numeric+
 @name = $alpha [$alpha $numeric]*
 
 :-
@@ -63,6 +67,8 @@ $white+ ;
   ":" { colon }
   ";" { semicolon }
   "=" { equals }
+  @int { int }
+  $negative @int { negativeInt }
   @name { name }
 }
 
@@ -75,6 +81,20 @@ var = special Var
 
 fn :: MonadError ParseException m => Action m
 fn = special Fn
+
+int :: MonadError ParseException m => Action m
+int l s =
+  return . Token l . Int . fromIntegral . int' s
+
+negativeInt :: MonadError ParseException m => Action m
+negativeInt l s =
+  return . Token l . Int . fromIntegral . negate . int' s
+
+int' :: ByteString -> Int -> Integer
+int' s n = ByteString.foldl' f 0 $ ByteString.take n' s
+  where
+    f a b = a * 10 + toInteger (digitToInt b)
+    n' = fromIntegral n
 
 name :: MonadError ParseException m => Action m
 name l s n = do

@@ -17,8 +17,8 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Writer hiding ((<>))
 
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as Map
 import qualified Data.Text as Text
 import Data.Typeable
 
@@ -29,6 +29,8 @@ import qualified Language.Glyph.Msg as Msg
 import Language.Glyph.Syntax
 
 import Text.PrettyPrint.Free
+
+type Map = HashMap
 
 rename :: forall a m .
           ( Data a
@@ -41,7 +43,8 @@ rename = evalStateT' . rename'
       everythingThisScope (>>) (return () `mkQ` defineFunDecl) stmts
       everywhereThisScopeM (mkM transformStmt `extM` transformExpr) stmts
 
-    evalStateT' m = evalStateT m initState
+    evalStateT' m =
+      evalStateT m initState
 
     defineFunDecl :: Stmt a -> StateT S m ()
     defineFunDecl (Stmt a (FunDeclS name _ _)) =
@@ -149,7 +152,7 @@ defineName x = do
 insertName :: MonadState S m => Name -> m ()
 insertName x = do
   s@S {..} <- get
-  put s { scope = Map.insert (view x) (ident x) scope }
+  put $! s { scope = Map.insert (view x) (ident x) scope }
 
 lookupIdent :: ( Pretty a
                , MonadReader a m
@@ -180,9 +183,9 @@ lookupIdent' x = go
 withScope :: MonadState S m => m a -> m a
 withScope m = do
   s@S {..} <- get
-  put s { scope = mempty, scopes = scope : scopes }
+  put $! s { scope = mempty, scopes = scope : scopes }
   a <- m
-  modify (\ s' -> s' { scope, scopes })
+  modify $ \ s' -> s' { scope, scopes }
   return a
 
 mkName :: Ident -> NameView -> Name

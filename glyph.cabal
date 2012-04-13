@@ -27,7 +27,8 @@ executable glyph
     template-haskell,
     text,
     hoopl,
-    wl-pprint-extras
+    wl-pprint-extras,
+    deepseq
   build-tools: alex >= 3, happy
   ghc-options: -Wall
 

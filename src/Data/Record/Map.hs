@@ -28,8 +28,8 @@ module Data.Record.Map
        ) where
 
 import Data.Hashable
-import Data.HashMap.Strict (HashMap, (!))
-import qualified Data.HashMap.Strict as Map
+import Data.HashMap.Lazy (HashMap, (!))
+import qualified Data.HashMap.Lazy as Map
 import Data.Typeable
 
 import GHC.Exts (Any)
@@ -118,7 +118,7 @@ newtype Label = Label TypeRep deriving (Eq, Hashable)
 toLabel :: Typeable label => label -> Label
 toLabel = Label . typeOf
 
-data Value = Value { unValue :: Any }
+newtype Value = Value { unValue :: Any }
 
 toValue :: value -> Value
 toValue = Value . Unsafe.unsafeCoerce

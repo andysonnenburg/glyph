@@ -11,7 +11,9 @@ module Language.Glyph.Type
        , Type (..)
        , Var
        , Label
+       , Form (..)
        , Predicate (..)
+       , toNonnormal
        , Constraint
        , prettyTypes
        , prettyLabel
@@ -49,11 +51,11 @@ prettyDefault = evalState' . pretty'
 showDefault :: Pretty a => a -> String
 showDefault = show . pretty
 
-data TypeScheme = Forall [Var] Constraint Type
+data TypeScheme = Forall [Var] (Constraint Normal) Type
 
 instance Pretty' TypeScheme where
   pretty' (Forall alpha c tau) = do
-    alpha' <- mapM pretty' alpha
+    alpha' <- mapM pretty' . toList $ alpha
     c' <- pretty' c
     tau' <- pretty' tau
     return $ hsep [text "forall", hsep alpha', char '.', c', text "=>", tau']
@@ -73,7 +75,6 @@ data Type
   | String
   | Void
   | Record Record
-    
   | Tuple [Type]
   | Cont Type deriving (Eq, Ord, Typeable)
 infixr 0 :->:
@@ -120,9 +121,9 @@ instance Pretty' Type where
       a :->: b -> do
         a' <- pretty' a
         b' <- pretty' b
-        return $ a' <+> text "->" <+> b'
+        return $ text "fn" <> a' <> b'
       Bool ->
-        return $ text "bool"
+        return $ text "boolean"
       Int ->
         return $ text "int"
       Double ->
@@ -164,15 +165,14 @@ instance Pretty' Var where
       Nothing -> do
         doc <- execWriterT $ do
           let (q, r) = a `quotRem` size
-          tell $ char '\''
-          tell $ char $ toEnum $ r + fromEnum 'a'
+          tell $ char $ toEnum $ r + fromEnum 'A'
           unless (q == 0) $ tell $ pretty q
         put (a + 1, IdentMap.insert x doc m)
         return doc
       Just doc ->
         return doc
     where
-      size = fromEnum 'z' - fromEnum 'a' + 1
+      size = fromEnum 'Z' - fromEnum 'A' + 1
 
 type Record = Map Label Type
 
@@ -189,55 +189,65 @@ instance Pretty' Record where
 
 type Label = MethodName
 
-data Predicate where
-  (:.) :: Type -> (Label, Type) -> Predicate
-  (:=) :: Type -> Type -> Predicate
+data Form
+  = Normal
+  | Nonnormal
+
+data Predicate a where
+  (:=) :: Type -> Type -> Predicate Nonnormal
+  Has :: Type -> (Label, Type) -> Predicate a
 infixr 0 :=
 
-deriving instance Eq Predicate
-deriving instance Ord Predicate
+deriving instance Eq (Predicate a)
+deriving instance Ord (Predicate a)
 
-instance Show Predicate where
+instance Show (Predicate a) where
   show = showDefault
 
-instance Hashable Predicate where
-  hash (a :. (l, b)) =
-    0 `hashWithSalt`
-    a `hashWithSalt`
-    l `hashWithSalt`
-    b
+instance Hashable (Predicate a) where
   hash (a := b) =
     1 `hashWithSalt`
     a `hashWithSalt`
     b
+  hash (a `Has` (l, b)) =
+    0 `hashWithSalt`
+    a `hashWithSalt`
+    l `hashWithSalt`
+    b
 
-instance Pretty Predicate where
+instance Pretty (Predicate a) where
   pretty = prettyDefault
 
-instance Pretty' Predicate where
+instance Pretty' (Predicate a) where
   pretty' = go
     where
-      go (a :. (l, b)) = do
-        a' <- pretty' a
-        b' <- pretty' b
-        return $ a' <+> text "has" <+> prettyLabel l <> colon <+> b'
       go (a := b) = do
         a' <- pretty' a
         b' <- pretty' b
         return $ a' <+> char '=' <+> b'
+      go (a `Has` (l, b)) = do
+        a' <- pretty' a
+        b' <- pretty' b
+        return $ a' <+> text "has" <+> prettyLabel l <> colon <+> b'
 
-instance NFData Predicate where
+instance NFData (Predicate a) where
   rnf (a := b) = rnf a `seq`
                  rnf b `seq`
                  ()
-  rnf (a :. (l, b)) = rnf a `seq`
-                      rnf l `seq`
-                      rnf b `seq`
-                      ()
+  rnf (a `Has` (l, b)) = rnf a `seq`
+                         rnf l `seq`
+                         rnf b `seq`
+                         ()
 
-type Constraint = Set Predicate
+toNonnormal :: Predicate a -> Predicate Nonnormal
+toNonnormal = go
+  where
+    go p@(_ := _) = p
+    go (a `Has` x) = a `Has` x
 
-instance Pretty' Constraint where
+type Constraint a = Set (Predicate a)
+
+instance Pretty' (Constraint a) where
   pretty' = liftM tupled . mapM pretty' . toList
 
 prettyTypes :: (Type, Type) -> (Doc e, Doc e)

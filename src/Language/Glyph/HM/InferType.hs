@@ -26,6 +26,7 @@ import Control.Monad.State.Strict
 import Control.Monad.Writer.Strict hiding ((<>))
 
 import Data.Foldable (toList)
+import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import qualified Data.HashSet as Set
@@ -38,8 +39,6 @@ import Data.Typeable
 import Language.Glyph.HM.Syntax
 import Language.Glyph.Ident
 import Language.Glyph.IdentSet (IdentSet, (\\), member)
-import Language.Glyph.IdentMap (IdentMap)
-import qualified Language.Glyph.IdentMap as IdentMap
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Msg hiding (singleton)
 import qualified Language.Glyph.Msg as Msg
@@ -64,7 +63,7 @@ inferType e = do
   ((psi, _c, _tau), gamma) <- runStateT (inferExp e) mempty
   return $! psi $$ gamma
 
-type TypeEnvironment = IdentMap TypeScheme
+type TypeEnvironment = Map Ident TypeScheme
 
 newtype Substitution =
   Substitution { unSubstitution :: Map Type.Var Type
@@ -141,7 +140,7 @@ inferExp = go
       return (mempty, c, tau)
     w (AbsE x e) = do
       alpha <- fresh
-      modify $ IdentMap.insert x (mono alpha)
+      modify $ Map.insert x (mono alpha)
       (psi, c, tau) <- inferExp e
       return (psi $\ alpha, c, (psi $$ alpha) :->: tau)
     w (AppE e1 e2) = do
@@ -158,12 +157,12 @@ inferExp = go
       (psi1, c1, tau) <- inferExp e
       gamma <- get
       (c2, sigma) <- generalize c1 (psi1 $$ gamma) tau
-      modify $ IdentMap.insert x sigma
+      modify $ Map.insert x sigma
       (psi2, c3, tau') <- localApply psi1 $ inferExp e'
       let d = c2 <> c3
           psi' = psi2 $. psi1
       (c, psi) <- normalize (Set.map toNonnormal d) psi'
-      return (psi $| typeVars (IdentMap.delete x gamma), c, psi $$ tau')
+      return (psi $| typeVars (Map.delete x gamma), c, psi $$ tau')
     w (LitE lit) =
       inferLit lit
     w (MkTuple x) = do
@@ -337,10 +336,10 @@ lookup :: ( Pretty a
 lookup x =
   get >>=
   maybe (throwError VarNotFound) return .
-  IdentMap.lookup x
+  Map.lookup x
 
-deleteList :: [Ident] -> IdentMap a -> IdentMap a
-deleteList x gamma = foldr IdentMap.delete gamma x
+deleteList :: (Eq k, Hashable k) => [k] -> Map k v -> Map k v
+deleteList x gamma = foldl' (flip Map.delete) gamma x
 
 localApply :: MonadState TypeEnvironment m => Substitution -> m a -> m a
 localApply psi m = do
@@ -348,11 +347,11 @@ localApply psi m = do
   put $! psi $$ s
   a <- m
   s' <- get
-  put $ s `Map.union` s'
+  put $! s `Map.union` s'
   return $! a
 
 ($\) :: Substitution -> Type -> Substitution
-Substitution s $\ tau = Substitution $ foldl' (flip Map.delete) s alpha
+Substitution s $\ tau = Substitution $ deleteList alpha s
   where
     alpha = toList $ typeVars tau
 infixl 4 $\ --

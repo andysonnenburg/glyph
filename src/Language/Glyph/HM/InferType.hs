@@ -12,7 +12,7 @@
   , ScopedTypeVariables
   , TypeSynonymInstances #-}
 module Language.Glyph.HM.InferType
-       ( Substitution
+       ( TypeEnvironment
        , inferType
        ) where
 
@@ -22,12 +22,14 @@ import Control.Exception
 import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.ST
+import Control.Monad.State.Strict
 import Control.Monad.Writer.Strict hiding ((<>))
 
 import Data.Foldable (toList)
-import Data.HashMap.Lazy (HashMap)
-import qualified Data.HashMap.Lazy as Map
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as Map
 import qualified Data.HashSet as Set
+import Data.List (foldl')
 import Data.Maybe
 import Data.Semigroup
 import Data.STRef
@@ -35,8 +37,8 @@ import Data.Typeable
 
 import Language.Glyph.HM.Syntax
 import Language.Glyph.Ident
-import Language.Glyph.IdentMap (IdentMap, delete, intersection, singleton)
 import Language.Glyph.IdentSet (IdentSet, (\\), member)
+import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Msg hiding (singleton)
@@ -49,19 +51,23 @@ import Text.PrettyPrint.Free
 
 import Prelude hiding (lookup, null)
 
+import Debug.Trace
+
 type Map = HashMap
 
 inferType :: ( Pretty a
              , MonadError TypeException m
              , MonadWriter Msgs m
              , UniqueMonad m
-             ) => Exp a -> m (Substitution, Constraint Normal, Type)
-inferType = inferExp mempty
+             ) => Exp a -> m TypeEnvironment
+inferType e = do
+  ((psi, _c, _tau), gamma) <- runStateT (inferExp e) mempty
+  return $! psi $$ gamma
 
 type TypeEnvironment = IdentMap TypeScheme
 
 newtype Substitution =
-  Substitution { unSubstitution :: IdentMap Type
+  Substitution { unSubstitution :: Map Type.Var Type
                } deriving (Show, Semigroup, Monoid, NFData)
 
 data TypeException
@@ -119,80 +125,84 @@ instance Exception TypeException
 
 inferExp :: ( Pretty a
             , MonadError TypeException m
+            , MonadState TypeEnvironment m
             , MonadWriter Msgs m
             , UniqueMonad m
             ) =>
-            TypeEnvironment ->
             Exp a ->
             m (Substitution, Constraint Normal, Type)
 inferExp = go
   where
-    go gamma (Exp a x) =
-      runReaderT (w gamma x) a
-    w gamma (VarE x) = do
-      sigma <- lookup x gamma
+    go (Exp a x) =
+      runReaderT (w x) a
+    w (VarE x) = do
+      sigma <- lookup x
       (c, tau) <- instantiate sigma
       return (mempty, c, tau)
-    w gamma (AbsE x e) = do
+    w (AbsE x e) = do
       alpha <- fresh
-      (psi, c, tau) <- inferExp (delete x gamma <> singleton x (mono alpha)) e
+      modify $ IdentMap.insert x (mono alpha)
+      (psi, c, tau) <- inferExp e
       return (psi $\ alpha, c, (psi $$ alpha) :->: tau)
-    w gamma (AppE e1 e2) = do
-      (psi1, c1, tau1) <- inferExp gamma e1
-      (psi2, c2, tau2) <- inferExp (psi1 $$ gamma) e2
-      let psi' = psi2 $. psi1
+    w (AppE e1 e2) = do
+      (psi1, c1, tau1) <- inferExp e1
+      (psi2, c2, tau2) <- localApply psi1 $ inferExp e2
       alpha <- fresh
-      let d = Set.map toNonnormal ((psi2 $$ c1) <> c2) <>
-              Set.singleton ((psi2 $$ tau1) := tau2 :->: alpha)
+      let d = Set.map toNonnormal (c1 <> c2) <>
+              Set.singleton (tau1 := tau2 :->: alpha)
+          psi' = psi2 $. psi1
       (c, psi) <- normalize d psi'
-      return (psi, c, psi $$ alpha)
-    w gamma (LetE x e e') = do
-      (psi1, c1, tau) <- inferExp (delete x gamma) e
+      gamma <- get
+      return (psi $| typeVars gamma, c, psi $$ alpha)
+    w (LetE x e e') = do
+      (psi1, c1, tau) <- inferExp e
+      gamma <- get
       (c2, sigma) <- generalize c1 (psi1 $$ gamma) tau
-      (psi2, c3, tau') <- inferExp (delete x (psi1 $$ gamma) <> singleton x sigma) e'
-      let d = (psi2 $$ c2) <> c3
+      modify $ IdentMap.insert x sigma
+      (psi2, c3, tau') <- localApply psi1 $ inferExp e'
+      let d = c2 <> c3
           psi' = psi2 $. psi1
       (c, psi) <- normalize (Set.map toNonnormal d) psi'
-      return (psi, c, psi $$ tau')
-    w gamma (LitE lit) =
-      inferLit gamma lit
-    w _gamma (MkTuple x) = do
+      return (psi $| typeVars (IdentMap.delete x gamma), c, psi $$ tau')
+    w (LitE lit) =
+      inferLit lit
+    w (MkTuple x) = do
       alphas <- replicateM x fresh
       return (mempty, mempty, foldr (:->:) (Tuple alphas) alphas)
-    w _gamma (Select x y) = do
+    w (Select x y) = do
       alphas <- replicateM y fresh
       return (mempty, mempty, Tuple alphas :->: (alphas !! x))
-    w _gamma (Access l) = do
+    w (Access l) = do
       a <- fresh
       b <- fresh
       return (mempty, Set.singleton (a `Has` (l, b)), a :->: b)
-    w _gamma Undefined = do
+    w Undefined = do
       alpha <- fresh
       return (mempty, mempty, alpha)
-    w _gamma AsTypeOf = do
+    w AsTypeOf = do
       a <- fresh
       return (mempty, mempty, a :->: a :->: a)
-    w _gamma Fix = do
+    w Fix = do
       a <- fresh
       return (mempty, mempty, (a :->: a) :->: a)
-    w _gamma RunCont = do
+    w RunCont = do
       a <- fresh
       return (mempty, mempty, Cont a :->: a)
-    w _gamma Return = do
+    w Return = do
       a <- fresh
       return (mempty, mempty, a :->: Cont a)
-    w _gamma Then = do
+    w Then = do
       a <- fresh
       b <- fresh
       return (mempty, mempty, Cont a :->: Cont b :->: Cont b)
-    w _gamma CallCC = do
+    w CallCC = do
       a <- fresh
       b <- fresh
       return (mempty, mempty, ((a :->: Cont b) :->: Cont a) :->: Cont a)
 
 inferLit :: Monad m =>
-            TypeEnvironment -> Lit -> m (Substitution, Constraint Normal, Type)
-inferLit _gamma x =
+            Lit -> m (Substitution, Constraint Normal, Type)
+inferLit x =
   return (mempty, mempty, tau)
   where
     tau =
@@ -243,7 +253,7 @@ normalize = runNormalize
             d `forAll` (a, l) $ \ tau' ->
               modifyRef d $ \ d -> d `u` (tau := tau') \\ (Type.Var a `Has` (l, tau'))
             modifyRef c $ \ c -> c `u` (Type.Var a `Has` (l, tau))
-          Int `Has` (l, tau) -> do
+          Int `Has` (l, tau) ->
             case Map.lookup l intLabels of
               Nothing -> do
                 a <- ask
@@ -294,6 +304,7 @@ intLabels =
   Map.fromList [ ("equals", Tuple [Int] :->: Bool)
                , ("plus", Tuple [Int] :->: Int)
                , ("minus", Tuple [Int] :->: Int)
+               , ("toString", Tuple [] :->: String)
                ]
 
 fresh :: UniqueMonad m => m Type
@@ -301,9 +312,9 @@ fresh = liftM Type.Var freshIdent
 
 instantiate :: UniqueMonad m => TypeScheme -> m (Constraint Normal, Type)
 instantiate (Forall alphas c tau) = do
-  psi <- liftM (Substitution . mconcat) $ forM alphas $ \ alpha -> do
+  psi <- liftM (Substitution . Map.unions) $ forM alphas $ \ alpha -> do
     beta <- fresh
-    return (IdentMap.singleton alpha beta)
+    return (Map.singleton alpha beta)
   return (psi $$ c, psi $$ tau)
 
 generalize :: Monad m =>
@@ -319,36 +330,37 @@ generalize c gamma tau =
 lookup :: ( Pretty a
           , MonadError TypeException m
           , MonadReader a m
+          , MonadState TypeEnvironment m
           , MonadWriter Msgs m
           , UniqueMonad m
-          ) => Ident -> IdentMap TypeScheme -> m TypeScheme
+          ) => Ident -> m TypeScheme
 lookup x =
+  get >>=
   maybe (throwError VarNotFound) return .
   IdentMap.lookup x
 
-data S
-  = S { substitution :: Substitution
-      , constraint :: Constraint Normal
-      }
-
-initS :: S
-initS = S { substitution = mempty
-          , constraint = mempty
-          }
-
 deleteList :: [Ident] -> IdentMap a -> IdentMap a
-deleteList x gamma = foldr delete gamma x
+deleteList x gamma = foldr IdentMap.delete gamma x
+
+localApply :: MonadState TypeEnvironment m => Substitution -> m a -> m a
+localApply psi m = do
+  s <- get
+  put $! psi $$ s
+  a <- m
+  s' <- get
+  put $ s `Map.union` s'
+  return $! a
 
 ($\) :: Substitution -> Type -> Substitution
-Substitution s $\ tau = Substitution $ deleteList alpha s
+Substitution s $\ tau = Substitution $ foldl' (flip Map.delete) s alpha
   where
     alpha = toList $ typeVars tau
 infixl 4 $\ --
 
 ($|) :: Substitution -> IdentSet -> Substitution
-Substitution s $| xs = Substitution $ intersection s xs'
+Substitution s $| xs = Substitution $ Map.intersection s xs'
   where
-    xs' = IdentMap.fromList $ zip (toList xs) $ repeat ()
+    xs' = Map.fromList $ zip (toList xs) $ repeat ()
 infixl 4 $|
 
 class TypeVars a where
@@ -402,13 +414,13 @@ mgu tau1 tau2 =
         tell $ Msg.singleton $ mkErrorMsg a $ OccursCheckFailed tau1 tau2
         return mempty
       else
-        return $ Substitution $ singleton x tau2
+        return $! Substitution $ Map.singleton x tau2
     (_, Type.Var _) ->
       mgu tau2 tau1
     (x :->: x', y :->: y') -> do
       psi1 <- mgu x y
       psi2 <- mgu (psi1 $$ x') (psi1 $$ y')
-      return $ psi2 $. psi1
+      return $! psi2 $. psi1
     (Int, Int) ->
       return mempty
     (Double, Double) ->
@@ -420,7 +432,7 @@ mgu tau1 tau2 =
     (Tuple xs, Tuple ys) | length xs == length ys ->
       foldM' mempty (zip xs ys) $ \ psi (t, s) -> do
         psi' <- mgu (psi $$ t) (psi $$ s)
-        return $ psi' $. psi
+        return $! psi' $. psi
     (Cont tau1', Cont tau2') ->
       mgu tau1' tau2'
     _ -> do
@@ -435,14 +447,10 @@ class Apply a where
   ($$) :: Substitution -> a -> a
 infixr 0 $$
 
-instance Apply Substitution where
-  s1 $$ Substitution s2 =
-    Substitution $ fmap (s1 $$) s2
-
 instance Apply Type where
   s $$ x =
     case x of
-      Type.Var alpha -> fromMaybe x $ IdentMap.lookup alpha (unSubstitution s)
+      Type.Var alpha -> fromMaybe x $ Map.lookup alpha (unSubstitution s)
       a :->: b -> (s $$ a) :->: (s $$ b)
       Bool -> Bool
       Int -> Int
@@ -454,7 +462,7 @@ instance Apply Type where
       Cont a -> Cont $ s $$ a
 
 instance Apply TypeEnvironment where
-  s $$ gamma = (s $$) <$> gamma
+  s $$ gamma = Map.map (s $$) gamma
 
 instance Apply TypeScheme where
   Substitution s $$ Forall alpha c tau =
@@ -477,7 +485,7 @@ instance Apply a => Apply [a] where
   s $$ xs = map (s $$) xs
 
 ($.) :: Substitution -> Substitution -> Substitution
-s1 $. s2 = (s1 $$ s2) <> s1
+s1 $. Substitution s2 = Substitution (Map.map (s1 $$) s2) <> s1
 infixr 9 $.
 
 mono :: Type -> TypeScheme

@@ -25,6 +25,8 @@ import Language.Glyph.Unique
 
 import Text.PrettyPrint.Free
 
+import System.IO
+
 newtype LoggerT m a
   = LoggerT { unLoggerT :: ErrorT WrappedSomeException (WriterT Msgs m) a
             } deriving ( Functor
@@ -86,8 +88,8 @@ runLoggerT m = do
   (a, msgs) <- runWriterT . Error.runErrorT . unLoggerT $ m
   let doc = vcat . map pretty $ msgs
   liftIO $ do
-    putStr . show $ doc
-    unless (null msgs) $ putChar '\n'
+    hPutStr stderr . show $ doc
+    unless (null msgs) $ hPutChar stderr '\n'
   either (liftIO . throwIO . unwrapSomeException) return a
 
 instance UniqueMonad m => UniqueMonad (LoggerT m) where

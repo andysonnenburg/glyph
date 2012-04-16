@@ -71,7 +71,7 @@ rename = evalStateT' . rename'
     transformExpr :: Expr a -> StateT S m (Expr a)
     transformExpr (Expr a (VarE name)) = do
       name' <- runReaderT (updateName name) a
-      return $ Expr a $ VarE name'
+      return $! Expr a $ VarE name'
     transformExpr (Expr a (FunE x params stmts)) =
       withScope $ do
         runReaderT (mapM_ defineName params) a
@@ -186,7 +186,7 @@ withScope m = do
   put $! s { scope = mempty, scopes = scope : scopes }
   a <- m
   modify $ \ s' -> s' { scope, scopes }
-  return a
+  return $! a
 
 mkName :: Ident -> NameView -> Name
 mkName = Name

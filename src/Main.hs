@@ -126,7 +126,7 @@ glyph Glyph {..} =
    (\ r -> do
        ir <- runErrorT $ IR.fromStmts (r#.stmts)
        when dumpIR $
-         liftIO $ putStrLn $ IR.showGraph' ir
+         liftIO $ hPutStrLn stderr $ IR.showGraph' ir
        return $ insns #= ir #| r #- stmts) >=>
    
    (\ r -> do
@@ -138,7 +138,7 @@ glyph Glyph {..} =
        let r' = insns #= IR.mapGraph' WrapSemigroup (r#.insns) #| r #- insns
        hm <- liftM (fmap (unwrapSemigroup memptyLoc)) $ IR.toHM r'
        when dumpHM $
-         liftIO $ print hm
+         liftIO $ hPrint stderr hm
        _ <- runErrorT $ inferType hm
        return r) >=>
    

@@ -22,7 +22,13 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Writer
 
+instance (Error e, UniqueMonad m) => UniqueMonad (ErrorT e m) where
+  freshUnique = lift freshUnique
+
 instance UniqueMonad m => UniqueMonad (ReaderT r m) where
+  freshUnique = lift freshUnique
+
+instance UniqueMonad m => UniqueMonad (StateT s m) where
   freshUnique = lift freshUnique
 
 instance (Monoid w, UniqueMonad m) => UniqueMonad (WriterT w m) where
@@ -52,6 +58,3 @@ instance Monad m => UniqueMonad (UniqueSupplyT m) where
     i <- get
     put $! i + 1
     return $! intToUnique i
-
-instance (Error e, UniqueMonad m) => UniqueMonad (ErrorT e m) where
-  freshUnique = lift freshUnique

@@ -159,7 +159,7 @@ instance NFData Type where
 type Var = Ident
 
 instance Pretty' Var where
-  pretty' x = return $ pretty x {- do
+  pretty' x = do
     (a, m) <- get
     case IdentMap.lookup x m of
       Nothing -> do
@@ -172,7 +172,7 @@ instance Pretty' Var where
       Just doc ->
         return doc
     where
-      size = fromEnum 'Z' - fromEnum 'A' + 1 -}
+      size = fromEnum 'Z' - fromEnum 'A' + 1
 
 type Record = Map Label Type
 

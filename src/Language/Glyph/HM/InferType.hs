@@ -147,8 +147,8 @@ inferExp = go
       (psi1, c1, tau1) <- inferExp e1
       (psi2, c2, tau2) <- localApply psi1 $ inferExp e2
       alpha <- fresh
-      let d = Set.map toNonnormal (c1 <> c2) <>
-              Set.singleton (tau1 := tau2 :->: alpha)
+      let d = Set.map toNonnormal ((psi2 $$ c1) <> c2) <>
+              Set.singleton ((psi2 $$ tau1) := tau2 :->: alpha)
           psi' = psi2 $. psi1
       (c, psi) <- normalize d psi'
       gamma <- get
@@ -159,7 +159,7 @@ inferExp = go
       (c2, sigma) <- generalize c1 (psi1 $$ gamma) tau
       modify $ Map.insert x sigma
       (psi2, c3, tau') <- localApply psi1 $ inferExp e'
-      let d = c2 <> c3
+      let d = (psi2 $$ c2) <> c3
           psi' = psi2 $. psi1
       (c, psi) <- normalize (Set.map toNonnormal d) psi'
       return (psi $| typeVars (Map.delete x gamma), c, psi $$ tau')

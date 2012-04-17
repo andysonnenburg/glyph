@@ -12,6 +12,8 @@ import Control.Monad.Error hiding (ErrorT (..))
 
 import qualified Data.ByteString.Lazy as ByteString
 import Data.Generics
+import Data.HashMap.Strict (HashMap, (!))
+import qualified Data.HashMap.Strict as Map
 import qualified Data.Record as Record
 
 import Language.Glyph.AddCallSet
@@ -23,7 +25,6 @@ import Language.Glyph.CheckBreak
 import Language.Glyph.CheckContinue
 import Language.Glyph.CheckFun
 import Language.Glyph.CheckReturn
--- import Language.Glyph.CheckVar
 import Language.Glyph.HM (inferType)
 import qualified Language.Glyph.IR as IR
 import Language.Glyph.IR.RemoveUnreachable
@@ -33,26 +34,34 @@ import Language.Glyph.Loc
 import Language.Glyph.Logger
 import Language.Glyph.Monoid
 import Language.Glyph.Parse
-import Language.Glyph.Record hiding (Loc, name)
+import Language.Glyph.Record hiding (Loc)
 import Language.Glyph.Rename
 import Language.Glyph.Syntax
+import Language.Glyph.Type
 import Language.Glyph.Unique
 
-import System.Console.CmdArgs hiding ((:=), args)
+import System.Console.CmdArgs hiding ((:=), args, name)
+import qualified System.Console.CmdArgs as CmdArgs
 import System.Environment
 import System.IO
 
+import Text.PrettyPrint.Free
+
 import Prelude hiding (catch, lex)
+
+type Map = HashMap
 
 data Glyph
   = Glyph { dumpIR :: Bool
           , dumpHM :: Bool
+          , dumpTypes :: Bool
           } deriving (Typeable, Data)
 
 glyphCmdArgs :: String -> Glyph
 glyphCmdArgs progName =
-  modes [Glyph { dumpIR = def &= explicit &= name "dump-ir"
-               , dumpHM = def &= explicit &= name "dump-hm"
+  modes [Glyph { dumpIR = def &= explicit &= CmdArgs.name "dump-ir"
+               , dumpHM = def &= explicit &= CmdArgs.name "dump-hm"
+               , dumpTypes = def &= explicit &= CmdArgs.name "dump-types"
                } &= auto] &= program progName
 
 main :: IO ()
@@ -139,8 +148,14 @@ glyph Glyph {..} =
        hm <- liftM (fmap (unwrapSemigroup memptyLoc)) $ IR.toHM r'
        when dumpHM $
          liftIO $ hPrint stderr hm
-       _ <- runErrorT $ inferType hm
-       return r) >=>
+       gamma <- runErrorT $ inferType hm
+       when dumpTypes $ do
+         let m = r#.symtab
+         runPrettyTypeT $ forM_ (Map.toList gamma) $ \ (x, tau) ->
+           whenJust (select name =<< Map.lookup x m) $ \ x' -> do
+             tau' <- prettyM tau
+             liftIO $ hPrint stderr $ prettyText x' <> colon <+> tau'
+       return r') >=>
    
    -- Convert to bytecode representation
    
@@ -159,3 +174,9 @@ idents = everything (<>) (mempty `mkQ` queryExpr `extQ` queryName)
 
 memptyLoc :: Loc
 memptyLoc = Loc initPos initPos
+
+whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
+whenJust x f = go x
+  where
+    go Nothing = return ()
+    go (Just a) = f a

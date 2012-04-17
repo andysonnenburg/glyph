@@ -4,6 +4,7 @@
   , FlexibleContexts
   , FlexibleInstances
   , GADTs
+  , GeneralizedNewtypeDeriving
   , StandaloneDeriving
   , TypeSynonymInstances #-}
 module Language.Glyph.Type
@@ -15,11 +16,18 @@ module Language.Glyph.Type
        , Predicate (..)
        , toNonnormal
        , Constraint
+       , Pretty
+       , runPrettyType
+       , PrettyTypeT
+       , runPrettyTypeT
+       , prettyM
        , prettyTypes
        , prettyLabel
        ) where
 
+import Control.Applicative
 import Control.DeepSeq
+import Control.Monad.Identity
 import Control.Monad.State
 import Control.Monad.Writer hiding ((<>))
 
@@ -39,25 +47,39 @@ import Text.PrettyPrint.Free hiding (encloseSep, tupled)
 
 type Set = HashSet
 
-class Pretty' a where
-  pretty' :: MonadState (Int, IdentMap (Doc e)) m => a -> m (Doc e)
+type PrettyType e = PrettyTypeT e Identity
 
-prettyDefault :: Pretty' a => a -> Doc e
-prettyDefault = evalState' . pretty'
-  where
-    evalState' =
-      flip evalState (0, mempty)
+runPrettyType :: PrettyType e a -> a
+runPrettyType = runIdentity . runPrettyTypeT
+
+newtype PrettyTypeT e m a
+  = PrettyTypeT { unPrettyTypeT :: StateT (Int, IdentMap (Doc e)) m a
+                } deriving ( Functor
+                           , Applicative
+                           , Monad
+                           , MonadTrans
+                           , MonadIO
+                           )
+
+runPrettyTypeT :: Monad m => PrettyTypeT e m a -> m a
+runPrettyTypeT = flip evalStateT (0, mempty) . unPrettyTypeT
+
+class PrettyM a where
+  prettyM :: Monad m => a -> PrettyTypeT e m (Doc e)
+
+prettyDefault :: PrettyM a => a -> Doc e
+prettyDefault = runPrettyType . prettyM
 
 showDefault :: Pretty a => a -> String
 showDefault = show . pretty
 
 data TypeScheme = Forall [Var] (Constraint Normal) Type
 
-instance Pretty' TypeScheme where
-  pretty' (Forall alpha c tau) = do
-    alpha' <- mapM pretty' . toList $ alpha
-    c' <- pretty' c
-    tau' <- pretty' tau
+instance PrettyM TypeScheme where
+  prettyM (Forall alpha c tau) = do
+    alpha' <- mapM prettyM . toList $ alpha
+    c' <- prettyM c
+    tau' <- prettyM tau
     return $ hsep [text "forall", hsep alpha', char '.', c', text "=>", tau']
 
 instance Pretty TypeScheme where
@@ -113,14 +135,14 @@ instance Show Type where
 instance Pretty Type where
   pretty = prettyDefault
 
-instance Pretty' Type where
-  pretty' tau =
+instance PrettyM Type where
+  prettyM tau =
     case tau of
       Var x ->
-        pretty' x
+        prettyM x
       a :->: b -> do
-        a' <- pretty' a
-        b' <- pretty' b
+        a' <- prettyM a
+        b' <- prettyM b
         return $ text "fn" <> a' <> b'
       Bool ->
         return $ text "boolean"
@@ -133,12 +155,12 @@ instance Pretty' Type where
       Void ->
         return $ text "void"
       Record r ->
-        pretty' r
+        prettyM r
       Tuple xs -> do
-        xs' <- mapM pretty' xs
+        xs' <- mapM prettyM xs
         return $ tupled xs'
       Cont a -> do
-        a' <- pretty' a
+        a' <- prettyM a
         return $ text "Cont#" <+> a'
 
 instance NFData Type where
@@ -158,16 +180,16 @@ instance NFData Type where
 
 type Var = Ident
 
-instance Pretty' Var where
-  pretty' x = do
-    (a, m) <- get
+instance PrettyM Var where
+  prettyM x = do
+    (a, m) <- PrettyTypeT get
     case IdentMap.lookup x m of
       Nothing -> do
         doc <- execWriterT $ do
           let (q, r) = a `quotRem` size
           tell $ char $ toEnum $ r + fromEnum 'A'
           unless (q == 0) $ tell $ pretty q
-        put (a + 1, IdentMap.insert x doc m)
+        PrettyTypeT $ put (a + 1, IdentMap.insert x doc m)
         return doc
       Just doc ->
         return doc
@@ -176,15 +198,15 @@ instance Pretty' Var where
 
 type Record = Map Label Type
 
-instance Pretty' Record where
-  pretty' =
+instance PrettyM Record where
+  prettyM =
     liftM (encloseSep lbrace rbrace (comma <> space)) .
     mapM f .
     Map.toList
     where
       f (a, b) = do
         let a' = prettyLabel a
-        b' <- pretty' b
+        b' <- prettyM b
         return $ a' <> colon <+> b'
 
 type Label = MethodName
@@ -218,16 +240,16 @@ instance Hashable (Predicate a) where
 instance Pretty (Predicate a) where
   pretty = prettyDefault
 
-instance Pretty' (Predicate a) where
-  pretty' = go
+instance PrettyM (Predicate a) where
+  prettyM = go
     where
       go (a := b) = do
-        a' <- pretty' a
-        b' <- pretty' b
+        a' <- prettyM a
+        b' <- prettyM b
         return $ a' <+> char '=' <+> b'
       go (a `Has` (l, b)) = do
-        a' <- pretty' a
-        b' <- pretty' b
+        a' <- prettyM a
+        b' <- prettyM b
         return $ a' <+> text "has" <+> prettyLabel l <> colon <+> b'
 
 instance NFData (Predicate a) where
@@ -247,19 +269,16 @@ toNonnormal = go
 
 type Constraint a = Set (Predicate a)
 
-instance Pretty' (Constraint a) where
-  pretty' = liftM tupled . mapM pretty' . toList
+instance PrettyM (Constraint a) where
+  prettyM = liftM tupled . mapM prettyM . toList
 
 prettyTypes :: (Type, Type) -> (Doc e, Doc e)
 prettyTypes = uncurry go
   where
-    go a b =
-      evalState' $ do
-        a' <- pretty' a
-        b' <- pretty' b
-        return (a', b')    
-    evalState' =
-      flip evalState (0, mempty)
+    go a b = runPrettyType $ do
+      a' <- prettyM a
+      b' <- prettyM b
+      return (a', b')
 
 prettyLabel :: Label -> Doc e
 prettyLabel = prettyText

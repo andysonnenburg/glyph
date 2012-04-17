@@ -50,8 +50,6 @@ import Text.PrettyPrint.Free
 
 import Prelude hiding (lookup, null)
 
-import Debug.Trace
-
 type Map = HashMap
 
 inferType :: ( Pretty a
@@ -60,8 +58,10 @@ inferType :: ( Pretty a
              , UniqueMonad m
              ) => Exp a -> m TypeEnvironment
 inferType e = do
-  ((psi, _c, _tau), gamma) <- runStateT (inferExp e) mempty
+  ((psi, _c, _tau), gamma) <- run $ inferExp e
   return $! psi $$ gamma
+  where
+    run = flip runStateT mempty . flip runReaderT mempty
 
 type TypeEnvironment = Map Ident TypeScheme
 
@@ -124,6 +124,7 @@ instance Exception TypeException
 
 inferExp :: ( Pretty a
             , MonadError TypeException m
+            , MonadReader TypeEnvironment m
             , MonadState TypeEnvironment m
             , MonadWriter Msgs m
             , UniqueMonad m
@@ -140,29 +141,26 @@ inferExp = go
       return (mempty, c, tau)
     w (AbsE x e) = do
       alpha <- fresh
-      modify $ Map.insert x (mono alpha)
-      (psi, c, tau) <- inferExp e
-      return (psi $\ alpha, c, (psi $$ alpha) :->: tau)
+      (psi, c, tau) <- local' (Map.insert x (mono alpha)) $ inferExp e
+      return (psi, c, (psi $$ alpha) :->: tau)
     w (AppE e1 e2) = do
-      (psi1, c1, tau1) <- inferExp e1
-      (psi2, c2, tau2) <- localApply psi1 $ inferExp e2
+      (psi1, c1, tau1) <- lift $ inferExp e1
+      (psi2, c2, tau2) <- local' (psi1 $$) $ inferExp e2
       alpha <- fresh
       let d = Set.map toNonnormal ((psi2 $$ c1) <> c2) <>
               Set.singleton ((psi2 $$ tau1) := tau2 :->: alpha)
           psi' = psi2 $. psi1
       (c, psi) <- normalize d psi'
-      gamma <- get
-      return (psi $| typeVars gamma, c, psi $$ alpha)
+      return (psi, c, psi $$ alpha)
     w (LetE x e e') = do
-      (psi1, c1, tau) <- inferExp e
-      gamma <- get
-      (c2, sigma) <- generalize c1 (psi1 $$ gamma) tau
-      modify $ Map.insert x sigma
-      (psi2, c3, tau') <- localApply psi1 $ inferExp e'
+      (psi1, c1, tau) <- lift $ inferExp e
+      gamma <- ask'
+      let (c2, sigma) = generalize c1 (psi1 $$ gamma) tau
+      (psi2, c3, tau') <- local' (Map.insert x sigma . (psi1 $$)) $ inferExp e'
       let d = (psi2 $$ c2) <> c3
           psi' = psi2 $. psi1
       (c, psi) <- normalize (Set.map toNonnormal d) psi'
-      return (psi $| typeVars (Map.delete x gamma), c, psi $$ tau')
+      return (psi, c, psi $$ tau')
     w (LitE lit) =
       inferLit lit
     w (MkTuple x) = do
@@ -212,6 +210,17 @@ inferLit x =
         StringL _ -> String
         VoidL -> Void
 
+ask' :: (MonadReader r m, MonadTrans t) => t m r
+ask' = lift ask
+
+local' :: ( MonadReader TypeEnvironment m
+          , MonadState TypeEnvironment m
+          , MonadTrans t
+          ) => (TypeEnvironment -> TypeEnvironment) -> m a -> t m a
+local' f m = lift . local f $ do
+  modify f
+  m
+
 type Normalize a s = ErrorT TypeException (ReaderT a (WriterT Msgs (ST s)))
 
 normalize :: forall a m .
@@ -250,18 +259,30 @@ normalize = runNormalize
             modifyRef psi (psi' $.)
           Type.Var a `Has` (l, tau) -> do
             d `forAll` (a, l) $ \ tau' ->
-              modifyRef d $ \ d -> d `u` (tau := tau') \\ (Type.Var a `Has` (l, tau'))
-            modifyRef c $ \ c -> c `u` (Type.Var a `Has` (l, tau))
+              modifyRef d $ \ d' -> d' `u` (tau := tau') \\ (Type.Var a `Has` (l, tau'))
+            modifyRef c $ \ c' -> c' `u` (Type.Var a `Has` (l, tau))
+          Bool `Has` (l, tau) ->
+            case Map.lookup l boolLabels of
+              Nothing -> do
+                a <- ask
+                tell $ Msg.singleton $ mkErrorMsg a $ MissingLabel Bool l
+              Just tau' ->
+                modifyRef d (`u` (tau := tau'))
           Int `Has` (l, tau) ->
             case Map.lookup l intLabels of
               Nothing -> do
                 a <- ask
                 tell $ Msg.singleton $ mkErrorMsg a $ MissingLabel Int l
               Just tau' ->
-                modifyRef d $ \ d -> d `u` (tau := tau')
-      c <- readRef c
-      psi <- readRef psi
-      return (c, psi)
+                modifyRef d (`u` (tau := tau'))
+          Void `Has` (l, tau) ->
+            case Map.lookup l voidLabels of
+              Nothing -> do
+                a <- ask
+                tell $ Msg.singleton $ mkErrorMsg a $ MissingLabel Void l
+              Just tau' ->
+                modifyRef d (`u` (tau := tau'))
+      (,) <$> readRef c <*> readRef psi
     whileJust m f = go
       where
         go = do
@@ -298,13 +319,29 @@ normalize = runNormalize
         (x:_) -> Just (x, Set.delete x xs)
         [] -> Nothing
 
+boolLabels :: Map Label Type
+boolLabels =
+  Map.fromList [ ("equals", Tuple [Bool] :->: Bool)
+               , ("hashCode", Tuple [] :->: Int)
+               , ("toString", Tuple [] :->: String)
+               ]
+
 intLabels :: Map Label Type
 intLabels =
   Map.fromList [ ("equals", Tuple [Int] :->: Bool)
+               , ("hashCode", Tuple [] :->: Int)
                , ("plus", Tuple [Int] :->: Int)
                , ("minus", Tuple [Int] :->: Int)
                , ("toString", Tuple [] :->: String)
                ]
+
+voidLabels :: Map Label Type
+voidLabels =
+  Map.fromList [ ("equals", Tuple [Void] :->: Bool)
+               , ("hashCode", Tuple [] :->: Int)
+               , ("toString", Tuple [] :->: String)
+               ]
+
 
 fresh :: UniqueMonad m => m Type
 fresh = liftM Type.Var freshIdent
@@ -316,39 +353,28 @@ instantiate (Forall alphas c tau) = do
     return (Map.singleton alpha beta)
   return (psi $$ c, psi $$ tau)
 
-generalize :: Monad m =>
-              Constraint Normal ->
+generalize :: Constraint Normal ->
               TypeEnvironment ->
               Type ->
-              m (Constraint Normal, TypeScheme)
+              (Constraint Normal, TypeScheme)
 generalize c gamma tau =
-  return (c, poly alpha c tau)
+  (mempty, poly alpha c tau)
   where
     alpha = toList $ (typeVars tau <> typeVars c) \\ typeVars gamma
 
-lookup :: ( Pretty a
-          , MonadError TypeException m
-          , MonadReader a m
-          , MonadState TypeEnvironment m
-          , MonadWriter Msgs m
-          , UniqueMonad m
-          ) => Ident -> m TypeScheme
+lookup :: ( MonadError TypeException (t m)
+          , MonadReader TypeEnvironment m
+          , MonadTrans t
+          , MonadWriter Msgs (t m)
+          , UniqueMonad (t m)
+          ) => Ident -> t m TypeScheme
 lookup x =
-  get >>=
+  ask' >>=
   maybe (throwError VarNotFound) return .
   Map.lookup x
 
 deleteList :: (Eq k, Hashable k) => [k] -> Map k v -> Map k v
 deleteList x gamma = foldl' (flip Map.delete) gamma x
-
-localApply :: MonadState TypeEnvironment m => Substitution -> m a -> m a
-localApply psi m = do
-  s <- get
-  put $! psi $$ s
-  a <- m
-  s' <- get
-  put $! s `Map.union` s'
-  return $! a
 
 ($\) :: Substitution -> Type -> Substitution
 Substitution s $\ tau = Substitution $ deleteList alpha s

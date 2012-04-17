@@ -37,6 +37,7 @@ import Data.Hashable
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.HashSet (HashSet)
+import qualified Data.HashSet as Set
 
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap)
@@ -76,11 +77,47 @@ showDefault = show . pretty
 data TypeScheme = Forall [Var] (Constraint Normal) Type
 
 instance PrettyM TypeScheme where
-  prettyM (Forall alpha c tau) = do
-    alpha' <- mapM prettyM . toList $ alpha
-    c' <- prettyM c
-    tau' <- prettyM tau
-    return $ hsep [text "forall", hsep alpha', char '.', c', text "=>", tau']
+  prettyM (Forall alpha c tau) =
+    if Set.null params
+    then prettyM tau
+    else do
+      params' <- mapM prettyM . toList $ params
+      tau' <- prettyM tau
+      return $! parameters params' <+> tau'
+    where
+      c' = Set.map PredicateP $ c
+      alpha' = Set.fromList . map VarP $ alpha
+      params = c' `Set.union` alpha'
+
+parameters :: Foldable f => f (Doc e) -> Doc e
+parameters = encloseSep (char '<') (char '>') (comma <> space)
+
+data Parameter
+  = VarP Var
+  | PredicateP (Predicate Normal)
+
+instance Eq Parameter where
+  VarP a == VarP b = a == b
+  VarP a == PredicateP (Var b `Has` _) = a == b
+  PredicateP (Var a `Has` _) == VarP b = a == b
+  PredicateP a == PredicateP b = a == b
+  _ == _ = False
+
+instance Hashable Parameter where
+  hash (VarP a) = 0 `hashWithSalt`
+                  a
+  hash (PredicateP (Var a `Has` _)) = 0 `hashWithSalt`
+                                      a
+  hash (PredicateP a) = 1 `hashWithSalt`
+                        a
+
+instance PrettyM Parameter where
+  prettyM = go
+    where
+      go (VarP a) =
+        prettyM a
+      go (PredicateP a) =
+        prettyM a
 
 instance Pretty TypeScheme where
   pretty = prettyDefault
@@ -143,25 +180,25 @@ instance PrettyM Type where
       a :->: b -> do
         a' <- prettyM a
         b' <- prettyM b
-        return $ text "fn" <> a' <> b'
+        return $! text "fn" <> a' <> b'
       Bool ->
-        return $ text "boolean"
+        return $! text "boolean"
       Int ->
-        return $ text "int"
+        return $! text "int"
       Double ->
-        return $ text "double"
+        return $! text "double"
       String ->
-        return $ text "string"
+        return $! text "string"
       Void ->
-        return $ text "void"
+        return $! text "void"
       Record r ->
         prettyM r
       Tuple xs -> do
         xs' <- mapM prettyM xs
-        return $ tupled xs'
+        return $! tupled xs'
       Cont a -> do
         a' <- prettyM a
-        return $ text "Cont#" <+> a'
+        return $! text "Cont#" <+> a'
 
 instance NFData Type where
   rnf (Var x) = rnf x
@@ -207,7 +244,7 @@ instance PrettyM Record where
       f (a, b) = do
         let a' = prettyLabel a
         b' <- prettyM b
-        return $ a' <> colon <+> b'
+        return $! a' <> colon <+> b'
 
 type Label = MethodName
 
@@ -246,11 +283,11 @@ instance PrettyM (Predicate a) where
       go (a := b) = do
         a' <- prettyM a
         b' <- prettyM b
-        return $ a' <+> char '=' <+> b'
+        return $! a' <+> char '=' <+> b'
       go (a `Has` (l, b)) = do
         a' <- prettyM a
         b' <- prettyM b
-        return $ a' <+> text "has" <+> prettyLabel l <> colon <+> b'
+        return $! a' <+> text "has" <+> prettyLabel l <> parameters [b']
 
 instance NFData (Predicate a) where
   rnf (a := b) = rnf a `seq`

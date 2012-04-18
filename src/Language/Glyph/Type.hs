@@ -77,6 +77,12 @@ prettyDefault = runPrettyType . prettyM
 
 data TypeScheme = Forall [Var] (Constraint Normal) Type
 
+instance Show TypeScheme where
+  show = showDefault
+
+instance Pretty TypeScheme where
+  pretty = prettyDefault
+
 instance PrettyM TypeScheme where
   prettyM (Forall alpha c tau) =
     if Set.null params
@@ -120,12 +126,6 @@ concatParameters = map toParameter . Map.toList . foldl' f mempty
   where
     f m (tau `HasP` ps) =
       Map.insertWith mappend tau (Set.fromList ps) m
-
-instance Show TypeScheme where
-  show = showDefault
-
-instance Pretty TypeScheme where
-  pretty = prettyDefault
 
 instance PrettyM Parameter where
   prettyM = go
@@ -294,14 +294,13 @@ instance Show (Predicate a) where
 
 instance Hashable (Predicate a) where
   hash (a := b) =
-    1 `hashWithSalt`
-    a `hashWithSalt`
-    b
-  hash (a `Has` (l, b)) =
     0 `hashWithSalt`
     a `hashWithSalt`
-    l `hashWithSalt`
     b
+  hash (a `Has` p) =
+    1 `hashWithSalt`
+    a `hashWithSalt`
+    p
 
 instance Pretty (Predicate a) where
   pretty = prettyDefault
@@ -322,10 +321,9 @@ instance NFData (Predicate a) where
   rnf (a := b) = rnf a `seq`
                  rnf b `seq`
                  ()
-  rnf (a `Has` (l, b)) = rnf a `seq`
-                         rnf l `seq`
-                         rnf b `seq`
-                         ()
+  rnf (a `Has` p) = rnf a `seq`
+                    rnf p `seq`
+                    ()
 
 toNonnormal :: Predicate a -> Predicate Nonnormal
 toNonnormal = go

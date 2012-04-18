@@ -18,13 +18,13 @@ module Language.Glyph.HM.InferType
 import Control.Applicative
 import Control.DeepSeq
 import Control.Exception
-import Control.Monad.Error
-import Control.Monad.Reader
+import Control.Monad.Error hiding (forM_)
+import Control.Monad.Reader hiding (forM_)
 import Control.Monad.ST
-import Control.Monad.State.Strict
-import Control.Monad.Writer.Strict hiding ((<>))
+import Control.Monad.State.Strict hiding (forM_)
+import Control.Monad.Writer.Strict hiding ((<>), forM_)
 
-import Data.Foldable (toList)
+import Data.Foldable (forM_, toList)
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
@@ -254,7 +254,11 @@ normalize = runNormalize
           tau := tau' -> do
             psi' <- mgu tau tau'
             modifyRef d (psi' $$)
-            modifyRef c (psi' $$)
+            let changed = domain psi'
+            forRefM_ c $ \ p ->
+              unless (Set.null $ changed `Set.intersection` typeVars p) $ do
+                modifyRef d (`u` toNonnormal (psi' $$ p))
+                modifyRef c (\\ p)
             modifyRef psi (psi' $.)
           Type.Var a `Has` (l, tau) -> do
             d `forAll` (a, l) $ \ tau' ->
@@ -303,12 +307,15 @@ normalize = runNormalize
               return ()
     (d `forAll` (a, l)) f = do
       d' <- readRef d
-      forM_ (toList d') $ \ p ->
+      forM_ d' $ \ p ->
         case p of
           Type.Var a' `Has` (l', tau') | a == a' && l == l' ->
             f tau'
           _ ->
             return ()
+    forRefM_ ref f = do
+      x <- readRef ref
+      forM_ x f
     run :: (forall s . Normalize a s (Constraint Normal, Substitution)) ->
            m (Constraint Normal, Substitution)
     run m = do
@@ -320,6 +327,7 @@ normalize = runNormalize
     readRef = lift . lift . lift . readSTRef
     modifyRef r = lift . lift . lift . modifySTRef r
     writeRef r = lift . lift . lift . writeSTRef r
+    domain = Set.fromList . Map.keys . unSubstitution
     u = flip Set.insert
     (\\) = flip Set.delete
     uncons xs =

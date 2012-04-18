@@ -239,7 +239,7 @@ newtype VarName = VarName Int deriving Enum
 
 instance Pretty VarName where
   pretty (VarName x) =
-    char (toEnum (r + a)) <> if q == 0 then pretty q else mempty
+    char (toEnum (r + a)) <> if q == 0 then mempty else pretty q
     where
       (q, r) = x `quotRem` size
       size = fromEnum 'Z' - a + 1

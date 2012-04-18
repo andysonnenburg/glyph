@@ -260,27 +260,36 @@ normalize = runNormalize
             d `forAll` (a, l) $ \ tau' ->
               modifyRef d $ \ d' -> d' `u` (tau := tau') \\ (Type.Var a `Has` (l, tau'))
             modifyRef c $ \ c' -> c' `u` (Type.Var a `Has` (l, tau))
+          tau@(_ :->: _) `Has` (l, _) ->
+            tellMissingLabel tau l
           Bool `Has` (l, tau) ->
             case Map.lookup l boolLabels of
-              Nothing -> do
-                a <- ask
-                tell $ Msg.singleton $ mkErrorMsg a $ MissingLabel Bool l
+              Nothing ->
+                tellMissingLabel Bool l
               Just tau' ->
                 modifyRef d (`u` (tau := tau'))
           Int `Has` (l, tau) ->
             case Map.lookup l intLabels of
-              Nothing -> do
-                a <- ask
-                tell $ Msg.singleton $ mkErrorMsg a $ MissingLabel Int l
+              Nothing ->
+                tellMissingLabel Int l
+              Just tau' ->
+                modifyRef d (`u` (tau := tau'))
+          Double `Has` (l, tau) ->
+            case Map.lookup l doubleLabels of
+              Nothing ->
+                tellMissingLabel Double l
               Just tau' ->
                 modifyRef d (`u` (tau := tau'))
           Void `Has` (l, tau) ->
             case Map.lookup l voidLabels of
-              Nothing -> do
-                a <- ask
-                tell $ Msg.singleton $ mkErrorMsg a $ MissingLabel Void l
+              Nothing ->
+                tellMissingLabel Void l
               Just tau' ->
                 modifyRef d (`u` (tau := tau'))
+          tau@(Tuple _) `Has` (l, _) ->
+            tellMissingLabel tau l
+          tau@(Cont _) `Has` (l, _) ->
+            tellMissingLabel tau l
       (,) <$> readRef c <*> readRef psi
     whileJust m f = go
       where
@@ -318,6 +327,14 @@ normalize = runNormalize
         (x:_) -> Just (x, Set.delete x xs)
         [] -> Nothing
 
+tellMissingLabel :: ( Pretty a
+                    , MonadReader a m
+                    , MonadWriter Msgs m
+                    ) => Type -> Label -> m ()
+tellMissingLabel r l = do
+  a <- ask
+  tell $ Msg.singleton $ mkErrorMsg a $ MissingLabel r l
+
 boolLabels :: Map Label Type
 boolLabels =
   Map.fromList [ ("equals", Tuple [Bool] :->: Bool)
@@ -334,13 +351,21 @@ intLabels =
                , ("toString", Tuple [] :->: String)
                ]
 
+doubleLabels :: Map Label Type
+doubleLabels =
+  Map.fromList [ ("equals", Tuple [Double] :->: Bool)
+               , ("hashCode", Tuple [] :->: Int)
+               , ("plus", Tuple [Double] :->: Double)
+               , ("minus", Tuple [Double] :->: Double)
+               , ("toString", Tuple [] :->: String)
+               ]
+
 voidLabels :: Map Label Type
 voidLabels =
   Map.fromList [ ("equals", Tuple [Void] :->: Bool)
                , ("hashCode", Tuple [] :->: Int)
                , ("toString", Tuple [] :->: String)
                ]
-
 
 fresh :: UniqueMonad m => m Type
 fresh = liftM Type.Var freshIdent

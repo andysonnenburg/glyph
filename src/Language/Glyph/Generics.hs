@@ -51,7 +51,6 @@ everywhereThisScope =
     queryExpr (FunE {}) = True
     queryExpr _ = False
 
-
 everywhereThisScopeM :: Monad m => GenericM m -> GenericM m
 everywhereThisScopeM f =
   everywhereButM' (f' `ext1M'` transformStmt `ext1M'` transformExpr)

@@ -71,7 +71,7 @@ rename = evalStateT' . rename'
     transformExpr :: Expr a -> StateT S m (Expr a)
     transformExpr (Expr a (VarE name)) = do
       name' <- runReaderT (updateName name) a
-      return $! Expr a $ VarE name'
+      return $ Expr a $ VarE name'
     transformExpr (Expr a (FunE x params stmts)) =
       withScope $ do
         runReaderT (mapM_ defineName params) a
@@ -132,7 +132,7 @@ updateName :: ( Pretty a
               ) => Name -> m Name
 updateName name = do
   a <- lookupIdent name
-  return $ mkName a (view name)
+  return $! mkName a (view name)
 
 defineName :: ( Pretty a
               , MonadReader a m
@@ -147,7 +147,7 @@ defineName x = do
       insertName x
     just _ = do
       a <- ask
-      tell $ Msg.singleton $ mkErrorMsg a $ AlreadyDefined $ view x
+      tell $! Msg.singleton $ mkErrorMsg a $ AlreadyDefined $ view x
 
 insertName :: MonadState S m => Name -> m ()
 insertName x = do
@@ -165,8 +165,8 @@ lookupIdent x = do
   where
     nothing = do
       a <- ask
-      tell $ Msg.singleton $ mkErrorMsg a $ NotFound $ view x
-      return $ ident x
+      tell $! Msg.singleton $ mkErrorMsg a $ NotFound $ view x
+      return $! ident x
     just =
       return
 
@@ -185,8 +185,13 @@ withScope m = do
   s@S {..} <- get
   put $! s { scope = mempty, scopes = scope : scopes }
   a <- m
-  modify $ \ s' -> s' { scope, scopes }
-  return $! a
+  modify' $ \ s' -> s' { scope, scopes }
+  return a
+
+modify' :: MonadState s m => (s -> s) -> m ()
+modify' f = do
+  x <- get
+  put $! f x
 
 mkName :: Ident -> NameView -> Name
 mkName = Name

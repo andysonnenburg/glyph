@@ -330,7 +330,6 @@ normalize = runNormalize
     readRef = lift . lift . lift . readSTRef
     modifyRef r = lift . lift . lift . modifySTRef r
     writeRef r = lift . lift . lift . writeSTRef r
-    domain = Set.fromList . Map.keys . unSubstitution
     u = flip Set.insert
     (\\) = flip Set.delete
     uncons xs =

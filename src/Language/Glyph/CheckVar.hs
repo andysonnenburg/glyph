@@ -70,9 +70,9 @@ instance Pretty CheckVarException where
         text "have" </> text "been" </> 
         text "initialized"
       go (NotInitialized Nothing) =
-        text "a" </> text "variable" </> 
-        text "may" </> text "not" </> 
-        text "have" </> text "been" </> 
+        text "a" </> text "variable" </>
+        text "may" </> text "not" </>
+        text "have" </> text "been" </>
         text "initialized"
       go (StrMsgError s) =
         text s

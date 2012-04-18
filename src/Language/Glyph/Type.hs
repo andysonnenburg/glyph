@@ -35,8 +35,8 @@ import Control.Monad.Writer hiding ((<>))
 import Data.Data
 import Data.Foldable
 import Data.Hashable
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 
@@ -49,6 +49,7 @@ import Language.Glyph.Syntax (MethodName, prettyText)
 
 import Prelude hiding (enumFrom)
 
+type Map = HashMap
 type Set = HashSet
 
 type PrettyType e = PrettyTypeT e Identity
@@ -85,45 +86,59 @@ instance PrettyM TypeScheme where
       tau' <- prettyM tau
       return $! parameters params' <+> tau'
     where
-      c' = Set.map PredicateP c
-      alpha' = Set.fromList . map VarP $ alpha
+      c' = Set.fromList . concatParameters . map fromPredicate . toList $ c
+      alpha' = Set.fromList . map fromVar $ alpha
       params = c' `Set.union` alpha'
 
 parameters :: Foldable f => f (Doc e) -> Doc e
 parameters = encloseSep (char '<') (char '>') (comma <> space)
 
-data Parameter
-  = VarP Var
-  | PredicateP (Predicate Normal)
+data Parameter = HasP Type [(Label, Type)]
 
 instance Eq Parameter where
-  VarP a == VarP b = a == b
-  VarP a == PredicateP (Var b `Has` _) = a == b
-  PredicateP (Var a `Has` _) == VarP b = a == b
-  PredicateP a == PredicateP b = a == b
-  _ == _ = False
+  (Var a `HasP` _) == (Var a' `HasP` _) = a == a'
+  (a `HasP` ps) == (a' `HasP` ps') = a == a' && ps == ps'
 
 instance Hashable Parameter where
-  hash (VarP a) = 0 `hashWithSalt`
-                  a
-  hash (PredicateP (Var a `Has` _)) = 0 `hashWithSalt`
-                                      a
-  hash (PredicateP a) = 1 `hashWithSalt`
-                        a
+  hash (Var a `HasP` _) = 0 `hashWithSalt`
+                          a
+  hash (a `HasP` ps) = 1 `hashWithSalt`
+                       a `hashWithSalt`
+                       ps
 
-instance PrettyM Parameter where
-  prettyM = go
-    where
-      go (VarP a) =
-        prettyM a
-      go (PredicateP a) =
-        prettyM a
+fromPredicate :: Predicate Normal -> Parameter
+fromPredicate (a `Has` p) = a `HasP` [p]
+
+fromVar :: Var -> Parameter
+fromVar = flip HasP mempty . Var
+
+toParameter :: (Type, Set (Label, Type)) -> Parameter
+toParameter (a, ps) = a `HasP` toList ps
+
+concatParameters :: [Parameter] -> [Parameter]
+concatParameters = map toParameter . Map.toList . foldl' f mempty
+  where
+    f m (tau `HasP` ps) =
+      Map.insertWith mappend tau (Set.fromList ps) m
+
+instance Show TypeScheme where
+  show = showDefault
 
 instance Pretty TypeScheme where
   pretty = prettyDefault
 
-instance Show TypeScheme where
-  show = showDefault
+instance PrettyM Parameter where
+  prettyM = go
+    where
+      go (a `HasP` ps) = do
+        a' <- prettyM a
+        ps' <- mapM prettyProp ps
+        return $! a' <+> text "has" <+> props ps'
+      props =
+        encloseSep mempty mempty (space <> char '&' <> space)
+      prettyProp (l, tau) = do
+        tau' <- prettyM tau
+        return $! prettyLabel l <> parameters [tau']
 
 data Type
   = Var Var
@@ -135,7 +150,7 @@ data Type
   | Void
   | Record Record
   | Tuple [Type]
-  | Cont Type deriving (Eq, Ord, Typeable)
+  | Cont Type deriving (Eq, Typeable)
 infixr 0 :->:
 
 instance Hashable Type where
@@ -270,7 +285,6 @@ data Predicate a where
 infixr 0 :=
 
 deriving instance Eq (Predicate a)
-deriving instance Ord (Predicate a)
 
 instance Show (Predicate a) where
   show = showDefault

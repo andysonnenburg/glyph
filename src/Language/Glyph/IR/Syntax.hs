@@ -14,6 +14,7 @@ module Language.Glyph.IR.Syntax
        , Successor
        , mapGraph'
        , mapGraph''
+       , prettyText
        , prettyGraph
        ) where
 

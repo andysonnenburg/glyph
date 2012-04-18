@@ -12,7 +12,6 @@ import Control.Monad.Error hiding (ErrorT (..))
 
 import qualified Data.ByteString.Lazy as ByteString
 import Data.Generics
-import Data.HashMap.Strict (HashMap, (!))
 import qualified Data.HashMap.Strict as Map
 import qualified Data.Record as Record
 
@@ -48,8 +47,6 @@ import System.IO
 import Text.PrettyPrint.Free
 
 import Prelude hiding (catch, lex)
-
-type Map = HashMap
 
 data Glyph
   = Glyph { dumpIR :: Bool
@@ -135,7 +132,7 @@ glyph Glyph {..} =
    (\ r -> do
        ir <- runErrorT $ IR.fromStmts (r#.stmts)
        when dumpIR $
-         liftIO $ hPutStrLn stderr $ IR.showGraph' ir
+         liftIO $ hPrint stderr ir
        return $ insns #= ir #| r #- stmts) >=>
    
    (\ r -> do
@@ -144,7 +141,7 @@ glyph Glyph {..} =
    
    -- Type check syntax via inference
    (\ r -> do
-       let r' = insns #= IR.mapGraph' WrapSemigroup (r#.insns) #| r #- insns
+       let r' = insns #= fmap WrapSemigroup (r#.insns) #| r #- insns
        hm <- liftM (fmap (unwrapSemigroup memptyLoc)) $ IR.toHM r'
        when dumpHM $
          liftIO $ hPrint stderr hm

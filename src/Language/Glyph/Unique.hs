@@ -22,6 +22,10 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Writer
 
+import Language.Glyph.Stream
+
+import Prelude hiding (enumFrom)
+
 instance (Error e, UniqueMonad m) => UniqueMonad (ErrorT e m) where
   freshUnique = lift freshUnique
 
@@ -40,7 +44,7 @@ runUniqueSupply :: UniqueSupply a -> a
 runUniqueSupply = runIdentity . runUniqueSupplyT
 
 newtype UniqueSupplyT m a
-  = UniqueSupplyT { unUniqueSupplyT :: StateT Int m a
+  = UniqueSupplyT { unUniqueSupplyT :: StateT (Stream Int) m a
                   } deriving ( Functor
                              , Applicative
                              , Monad
@@ -51,10 +55,10 @@ newtype UniqueSupplyT m a
 deriving instance MonadWriter w m => MonadWriter w (UniqueSupplyT m)
 
 runUniqueSupplyT :: Monad m => UniqueSupplyT m a -> m a
-runUniqueSupplyT = flip evalStateT 0 . unUniqueSupplyT
+runUniqueSupplyT = flip evalStateT (enumFrom 0) . unUniqueSupplyT
 
 instance Monad m => UniqueMonad (UniqueSupplyT m) where
   freshUnique = UniqueSupplyT $ do
-    i <- get
-    put $! i + 1
-    return $! intToUnique i
+    x :| xs <- get
+    put xs
+    return $! intToUnique x

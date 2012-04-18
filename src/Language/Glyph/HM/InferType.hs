@@ -7,7 +7,6 @@
   , GeneralizedNewtypeDeriving
   , NoMonomorphismRestriction
   , OverloadedStrings
-  , PatternGuards
   , Rank2Types
   , ScopedTypeVariables
   , TypeSynonymInstances #-}

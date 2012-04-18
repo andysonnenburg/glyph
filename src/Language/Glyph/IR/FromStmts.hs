@@ -8,7 +8,8 @@
   , NoMonomorphismRestriction
   , RankNTypes
   , RebindableSyntax
-  , ScopedTypeVariables #-}
+  , ScopedTypeVariables
+  , UndecidableInstances #-}
 module Language.Glyph.IR.FromStmts
        ( ContFlowException (..)
        , fromStmts
@@ -28,6 +29,7 @@ import Data.List.NonEmpty (nonEmpty)
 import Data.Semigroup
 import Data.Typeable
 
+import Language.Glyph.Generics
 import Language.Glyph.Hoopl
 import Language.Glyph.Hoopl.Monad.Writer
 import Language.Glyph.IR.Syntax
@@ -39,29 +41,76 @@ import Text.PrettyPrint.Free
 
 import Prelude hiding (Monad (..), (=<<), last)
 
-fromStmts :: ( Semigroup a
+fromStmts :: forall a m .
+             ( Data a
+             , Semigroup a
              , MonadError ContFlowException m
              , UniqueMonad m
-             ) => [Glyph.Stmt a] -> m (Graph (Insn a) O C)
+             ) => [Glyph.Stmt a] -> m (Fun a)
 fromStmts =
   maybe fromEmpty fromNonEmpty . nonEmpty
   where
     return = Monad.return
+    (>>=) = (Monad.>>=)
 
     runReaderT' = flip runReaderT
     
-    fromEmpty =
-      return $ mkLast ReturnVoid
+    fromEmpty = do
+      x <- freshIdent
+      return $ Fun x mempty (mkLast ReturnVoid) mempty mempty
     
-    fromNonEmpty stmts =
-      liftM unW' .
-      runReaderT' r .
-      execWriterT .
-      mapM_ tellStmt .
-      toList $ stmts
+    fromNonEmpty stmts = do
+      x <- freshIdent
+      let params = mempty
+      runReaderT' r $ funM x params (toList stmts)
       where
-        unW' w = unW w |<*>| mkLast ReturnVoid
-    
+        insnsM =
+          liftM unW' .
+          execWriterT .
+          mapM_ tellStmt
+
+        varsQ =
+          everythingButFuns (<>) (mempty `mkQ` f)
+          where
+            f :: Glyph.StmtView a -> [Ident]
+            f (Glyph.VarDeclS name _) = [ident name]
+            f _ = mempty
+
+        funsM =
+          funsQ funM
+
+        funM :: ( MonadError ContFlowException m'
+                , MonadReader (R a) m'
+                , UniqueMonad m'
+                ) => Ident -> [Ident] -> [Glyph.Stmt a] -> m' (Fun a)
+        funM x params stmts' = do
+          insns <- insnsM stmts'
+          let vars = varsQ stmts'
+          funs <- funsM stmts'
+          return $ Fun x params insns vars funs
+
+        funsQ :: forall b m' .
+                 Monad.Monad m' =>
+                 (Ident -> [Ident] -> [Glyph.Stmt a] -> m' b) ->
+                 [Glyph.Stmt a] ->
+                 m' [b]
+        funsQ f =
+          sequence . everythingButFuns (<>) (mempty `mkQ` s `extQ` e)
+          where
+            s :: Glyph.StmtView a -> [m' b]
+            s (Glyph.FunDeclS name params stmts') =
+              [f (ident name) (map ident params) stmts']
+            s _ =
+              mempty
+            e :: Glyph.ExprView a -> [m' b]
+            e (Glyph.FunE x params stmts') =
+              [f x (map ident params) stmts']
+            e _ =
+              mempty
+
+        unW' w =
+          unW w |<*>| mkLast ReturnVoid
+
         r = R { annotation = sconcat . fmap extract $ stmts
               , finally = initFinally
               , maybeCatchLabel = Nothing
@@ -124,14 +173,13 @@ tellStmt = tellStmt'
     go (Glyph.ExprS e) = do
       x <- tellExpr e
       tellInsn $ F $ ExprS x
-    go (Glyph.VarDeclS name Nothing) =
-      tellInsn $ VarDeclS name
+    go (Glyph.VarDeclS _name Nothing) =
+      return ()
     go (Glyph.VarDeclS name (Just expr)) = do
-      tellInsn $ VarDeclS name
-      x <- tellExprInsn . AssignE name =<< tellExpr expr
+      x <- tellExprInsn . AssignE (ident name) =<< tellExpr expr
       tellInsn $ F $ ExprS x
-    go (Glyph.FunDeclS name params stmts) =
-      tellInsn =<< FunDeclS name params <$> fromStmts stmts
+    go (Glyph.FunDeclS _name _params _stmts) =
+      return ()
     go (Glyph.ReturnS Nothing) = do
       x <- tellExprInsn $ LitE VoidL
       join $ asks $ tellBeforeReturn . finally
@@ -245,11 +293,9 @@ tellExpr = tellExpr'
     go (Glyph.NotE expr) =
       tellExprInsn . NotE =<< tellExpr expr
     go (Glyph.VarE name) =
-      tellExprInsn $ VarE name
-    go (Glyph.FunE x params stmts) =
-      tellExprInsn =<<
-      FunE x params <$>
-      fromStmts stmts
+      tellExprInsn $ VarE . ident $ name
+    go (Glyph.FunE x _params _stmts) =
+      tellExprInsn $ VarE x
     go (Glyph.ApplyE expr exprs) =
       tellExprInsn =<<
       ApplyE <$>
@@ -262,7 +308,7 @@ tellExpr = tellExpr'
       pure methodName <*>
       mapM tellExpr exprs
     go (Glyph.AssignE name expr) =
-      tellExprInsn . AssignE name =<< tellExpr expr
+      tellExprInsn . AssignE (ident name) =<< tellExpr expr
 
 class TellInsn a e x f | f -> a e x where
   tellInsn :: (MonadReader (R a) m, UniqueMonad m) => f -> WriterT (W a) m e x ()
@@ -276,16 +322,16 @@ instance TellInsn a O O (Insn a O O) where
 instance TellInsn a O C (Insn a O C) where
   tellInsn = tell . mkW . mkLast
 
-instance TellInsn a O O (Stmt a O) where
+instance TellInsn a O O (Stmt O) where
   tellInsn x =
     tellInsn =<< Stmt <$> askA <*> pure x
 
-instance TellInsn a O C (Successor -> Stmt a C) where
+instance TellInsn a O C (Successor -> Stmt C) where
   tellInsn f = tellInsn =<< Stmt <$> askA <*> (f <$> asks maybeCatchLabel)
 
-newtype F a = F { unF :: forall x . MaybeC x (Label, Label) -> Stmt a x }
+newtype F = F { unF :: forall x . MaybeC x (Label, Label) -> Stmt x }
 
-instance TellInsn a O O (F a) where
+instance TellInsn a O O F where
   tellInsn f = do
     R { annotation = a, maybeCatchLabel } <- ask
     case maybeCatchLabel of
@@ -298,7 +344,7 @@ instance TellInsn a O O (F a) where
 
 tellExprInsn :: ( MonadReader (R a) m
                 , UniqueMonad m
-                ) => Expr a -> WriterT (W a) m O O ExprIdent
+                ) => Expr -> WriterT (W a) m O O ExprIdent
 tellExprInsn expr = do
   R { annotation = a, maybeCatchLabel } <- ask
   x <- freshIdent

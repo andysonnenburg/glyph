@@ -13,7 +13,6 @@ import Compiler.Hoopl hiding (Label)
 import Control.Monad.Reader
 
 import Data.Graph (flattenSCC, stronglyConnCompR)
-import Data.Maybe
 import Data.Monoid
 
 import Language.Glyph.Hoopl
@@ -24,151 +23,125 @@ import Language.Glyph.IdentMap (IdentMap, (!))
 import Language.Glyph.IdentSet (IdentSet)
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.IR.Syntax
-import Language.Glyph.Record hiding (Symtab, select)
+import Language.Glyph.Record hiding (Symtab, insns, select)
 import qualified Language.Glyph.Record as Record
 import Language.Glyph.Unique ()
 
 toHM :: ( Monoid a 
         , Select CallSet IdentSet sym
         , Select Record.Symtab (Symtab sym) fields
-        , Select Insns (Graph (Insn a) O C) fields
+        , Select Insns (Fun a) fields
         , UniqueMonad m
         ) => Record fields -> m (Exp a)
-toHM r = toExp (r#.symtab) (r#.insns)
+toHM r = toExp (r#.symtab) (r#.Record.insns)
 
 toList :: Graph n e x -> [SomeNode n]
 toList = foldGraphNodesR f []
   where
     f x xs = SomeNode x : xs
 
-data SomeNode n = forall e x . SomeNode (n e x)
+data SomeNode n = forall e x . SomeNode !(n e x)
 
 type SomeInsn a = SomeNode (Insn a)
 
 toExp :: ( Monoid a
          , Select CallSet IdentSet sym
          , UniqueMonad m
-         ) => Symtab sym -> Graph (Insn a) O C -> m (Exp a)
-toExp m (toList -> xs) = do
+         ) => Symtab sym -> Fun a -> m (Exp a)
+toExp m (Fun _x params (toList -> insns) vars funs) = do
   cc <- freshIdent
-  let r = initR (foldr f mempty xs) cc m
-  runReaderT' r $ runCont $ callCC $
-    absE cc (insnsToExp xs)
-    where
-      f (SomeNode (Stmt a _)) = mappend a
-      f (SomeNode (Expr a _ _ _)) = mappend a
-      f _ = id
+  let r = initR (mconcatInsns insns) cc m
+  runReaderT' r $ do
+    x <- freshIdent
+    absE x $
+      selectList x params $
+      declareList vars $
+      funsToExp funs $
+      runCont $ callCC $
+        absE cc (insnsToExp insns)
 
 funToExp :: ( Monoid a
             , Select CallSet IdentSet sym
             , UniqueMonad m
-            ) => [Ident] -> Graph (Insn a) O C -> T a sym m (Exp a)
-funToExp ps (toList -> xs) = do
-  x <- freshIdent
-  absE x $
-    selectList x ps $
-    runCont $ callCC $ do
-      cc <- freshIdent
-      absE cc (localCC cc $ insnsToExp xs)
+            ) => Fun a -> T a sym m (Exp a)
+funToExp (Fun _x params (toList -> insns) vars funs) =
+  localA (mconcatInsns insns) $ do
+    x <- freshIdent
+    absE x $
+      selectList x params $
+      declareList vars $
+      funsToExp funs $
+      runCont $ callCC $ do
+        cc <- freshIdent
+        absE cc (localCC cc $ insnsToExp insns)
 
-insnsToExp :: ( Monoid a
-              , Select CallSet IdentSet sym
-              , UniqueMonad m
-              ) => [SomeInsn a] -> T a sym m (Exp a)
-insnsToExp xs = vars . funs $ do
-  xs' <- mapM' go xs
-  sequence_' . catMaybes $ xs'
-  where
-    mapM' :: Monad m => (forall e x . Insn a e x -> m b) -> [SomeInsn a] -> m [b]
-    mapM' f = mapM f'
-      where
-        f' (SomeNode x) = f x
-    
-    go (Stmt a stmt) =
-      localA a (stmtToExp stmt)
-    go (Expr a x expr _) = liftM Just $
-      return' (localA a $ varE x `asTypeOf'` exprToExp expr)
-    go (Label _) =
-      return Nothing
-    go (Catch x _) = liftM Just $
-      return' (varE x)
-    go ReturnVoid = liftM Just $ do
-      cc <- askCC
-      appE (varE cc) (litE VoidL)
-
-    vars = concatMap' var xs
-      where
-        concatMap' f =
-          appEndo . mconcat . map (Endo . f)
-        var (SomeNode i) =
-          case i of
-            Stmt a (VarDeclS (ident -> x)) -> localA a . f x
-            Expr a x _ _ -> localA a . f x
-            Catch x _ -> f x
-            _ -> id
-          where
-            f x e = do
-              a <- askA
-              appE (absE x (localA a e)) undefined'
-
-    funs =
-      foldr' let' .
-      map (toLet . flattenSCC) .
-      stronglyConnCompR <$> callGraph xs
-      where
-        foldr' f as b =
-          foldr f b as
-        infixl 4 <$>
-        (f <$> a) b = do
-          a' <- a
-          f a' b
-        toLet xs' = (map snd' xs', map fst' xs')
-        fst' (x, _, _) = x
-        snd' (_, x, _) = x
-        let' (xs', e1) e2 = do
-          let a = mconcat . map fst $ e1
-          x <- freshIdent
-          y <- freshIdent
-          let e1' = map snd e1
-          localA a $
-            letE x (fix' (absE y $ selectList y xs' $ tupleE e1')) $
-              selectList x xs' e2
-
-callGraph :: forall a sym m .
-             ( Monoid a
+funsToExp :: ( Monoid a
              , Select CallSet IdentSet sym
              , UniqueMonad m
-             ) =>
-             [SomeInsn a] ->
-             T a sym m [((a, T a sym m (Exp a)), Ident, [Ident])]
-callGraph = concatMap' go'
+             ) => [Fun a] -> T a sym m (Exp a) -> T a sym m (Exp a)
+funsToExp funs e' = do
+  scc <- liftM stronglyConnCompR . mapM mkNode $ funs
+  foldr' letE' (map (toLet . flattenSCC) scc) e'
   where
-    concatMap' f = liftM mconcat . mapM f
-    go' (SomeNode i) = go i
-    go :: forall e x . Insn a e x -> T a sym m [((a, T a sym m (Exp a)), Ident, [Ident])]
-    go (Stmt a (FunDeclS (ident -> x) (map ident -> params) graph)) =
-      fun a x params graph
-    go (Expr a _ (FunE x (map ident -> params) graph) _) =
-      fun a x params graph
-    go _ =
-      return mempty
-    fun :: a -> Ident -> [Ident] -> Graph (Insn a) O C ->
-           T a sym m [((a, T a sym m (Exp a)), Ident, [Ident])]
-    fun a x params graph = do
+    mkNode f@(Fun x _params _insns _vars _funs) = do
       m <- askSymtab
       let xs = IdentSet.toList $ (m ! x)#.callSet
-      return [((a, e), x, xs)]
-        where
-          e = localA a $ funToExp params graph
+      return (f, x, xs)
+    letE' (xs, map funToExp -> e) e' = localA (mconcatFuns funs) $ do
+      x <- freshIdent
+      y <- freshIdent
+      letE x (fix' (absE y $ selectList y xs $ tupleE e)) $
+        selectList x xs e'
+    toLet xs =
+      (map snd' xs, map fst' xs)
+    foldr' f as b =
+      foldr f b as
+    fst' (x, _, _) = x
+    snd' (_, x, _) = x
 
-stmtToExp :: Monad m => Stmt a x -> T a sym m (Maybe (Exp a))
+mconcatFuns :: Monoid a => [Fun a] -> a
+mconcatFuns = mconcat . map f
+  where
+    f (Fun _x _params (toList -> insns) _vars funs) =
+      mconcatInsns insns <> mconcatFuns funs
+
+mconcatInsns :: Monoid a => [SomeInsn a] -> a
+mconcatInsns = foldr f mempty
+  where
+    f (SomeNode (Stmt a _)) = mappend a
+    f (SomeNode (Expr a _ _ _)) = mappend a
+    f _ = id
+
+insnsToExp :: Monad m => [SomeInsn a] -> T a sym m (Exp a)
+insnsToExp = go'
+  where
+    go' (SomeNode x:xs) =
+      go x xs
+    go' [] =
+      return' undefined'
+    go :: Monad m => Insn a e x -> [SomeInsn a] -> T a sym m (Exp a)
+    go (Stmt a stmt) insns =
+      localA a (stmtToExp stmt)
+      `then''`
+      insnsToExp insns
+    go (Expr a x expr _) insns =
+      localA a $ letE x (exprToExp expr) (insnsToExp insns)
+    go (Label _) insns =
+      insnsToExp insns
+    go (Catch x _) insns =
+      letE x undefined' (insnsToExp insns)
+    go ReturnVoid insns = do
+      cc <- askCC
+      appE (varE cc) (litE VoidL)
+      `then'`
+      insnsToExp insns
+    e1 `then''` e2 =
+      maybe e2 ((`then'` e2) . return) =<< e1
+
+stmtToExp :: Monad m => Stmt x -> T a sym m (Maybe (Exp a))
 stmtToExp = go
   where
-    go (ExprS x _) = liftM Just $
-      return' $ varE x
-    go (VarDeclS (ident -> x)) = liftM Just $
-      return' $ varE x
-    go (FunDeclS {}) =
+    go (ExprS {}) =
       return Nothing
     go (ReturnS x _) = liftM Just $ do
       cc <- askCC
@@ -180,29 +153,21 @@ stmtToExp = go
     go (ThrowS {}) =
       return Nothing
 
-exprToExp :: Monad m => Expr a -> T a sym m (Exp a)
+exprToExp :: Monad m => Expr -> T a sym m (Exp a)
 exprToExp = go
   where
     go (LitE lit) =
       litE lit
     go (NotE x) =
       varE x `asTypeOf'` litE (BoolL True)
-    go (VarE (ident -> x)) =
-      varE x
-    go (FunE x _ _) =
+    go (VarE x) =
       varE x
     go (ApplyE x xs) =
       appE (varE x) (tupleE (map varE xs))
     go (ApplyMethodE x method xs) =
       appE (accessE method (varE x)) (tupleE (map varE xs))
-    go (AssignE (ident -> x) y) =
+    go (AssignE x y) =
       varE x `asTypeOf'` varE y
-
-sequence_' :: Monad m => [Exp a] -> T a sym m (Exp a)
-sequence_' = go . map return
-  where
-    go [] = return' undefined'
-    go (x:xs) = foldl then' x xs
 
 varE :: Monad m => Ident -> T a sym m (Exp a)
 varE = liftR0 . HM.varE
@@ -234,6 +199,13 @@ selectList x = go
       where
         f (i, y) f' = letE y (appE (select i l) (varE x)) . f'
         l = length ys
+
+declareList :: Monad m => [Ident] -> T a sym m (Exp a) -> T a sym m (Exp a)
+declareList = go
+  where
+    go = foldr f id
+      where
+        f x f' e = appE (absE x (f' e)) undefined'
 
 select :: Monad m => Int -> Int -> T a sym m (Exp a)
 select i l = liftR0 $ HM.select i l
@@ -290,9 +262,6 @@ data R a sym
       , currentContinuation :: Ident
       , symbolTable :: Symtab sym
       }
-
-askA :: MonadReader (R a sym) m => m a
-askA = asks annotation
 
 localA :: MonadReader (R r sym) m => r -> m a -> m a
 localA a = local (\ r -> r { annotation = a})

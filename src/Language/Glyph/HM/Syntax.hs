@@ -33,11 +33,11 @@ import Control.Monad.Reader
 import Data.Data
 
 import Language.Glyph.Ident
+import Language.Glyph.Pretty
 import Language.Glyph.Syntax (Lit (..), prettyText)
 import Language.Glyph.Type as X (Label)
 import Language.Glyph.View
 
-import Text.PrettyPrint.Free hiding (encloseSep, tupled)
 
 class Pretty a => PrettyPrec a where
   prettyPrec :: Int -> a -> Doc e
@@ -58,7 +58,7 @@ instance PrettyPrec (Exp a) where
   prettyPrec p = prettyPrec p . view
 
 instance Show (Exp a) where
-  show = show . pretty
+  show = showDefault
 
 data ExpView a
   = VarE Ident
@@ -80,7 +80,7 @@ data ExpView a
   | CallCC deriving (Typeable, Data, Functor)
 
 instance Show (ExpView a) where
-  show = show . pretty
+  show = showDefault
 
 instance Pretty (ExpView a) where
   pretty = prettyDefault
@@ -109,9 +109,9 @@ instance PrettyPrec (ExpView a) where
         prettyParen (p > appPrec) $
         prettyPrec appPrec1 e1 <+> prettyPrec appPrec1 e2
       go (LetE x e1 e2) =
-        text "let" <+> pretty x <+> char '=' <+> align (pretty e1)
+        text "let" <+> pretty x <+> char '=' <+> align (pretty e1) <+> text "in"
         `above`
-        text "in" <+> align (pretty e2)
+        pretty e2
       go (LitE lit) =
         pretty lit
       go (MkTuple 0) =

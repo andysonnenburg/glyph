@@ -28,7 +28,8 @@ module Language.Glyph.Type
 import Control.Applicative
 import Control.DeepSeq
 import Control.Monad.Identity
-import Control.Monad.State
+import Control.Monad.State.Strict hiding (get, put)
+import qualified Control.Monad.State.Strict as State
 import Control.Monad.Writer hiding ((<>))
 
 import Data.Data
@@ -42,9 +43,11 @@ import qualified Data.HashSet as Set
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
+import Language.Glyph.Pretty
+import Language.Glyph.Stream
 import Language.Glyph.Syntax (MethodName, prettyText)
 
-import Text.PrettyPrint.Free hiding (encloseSep, tupled)
+import Prelude hiding (enumFrom)
 
 type Set = HashSet
 
@@ -54,7 +57,7 @@ runPrettyType :: PrettyType e a -> a
 runPrettyType = runIdentity . runPrettyTypeT
 
 newtype PrettyTypeT e m a
-  = PrettyTypeT { unPrettyTypeT :: StateT (Int, IdentMap (Doc e)) m a
+  = PrettyTypeT { unPrettyTypeT :: StateT (Stream VarName, IdentMap (Doc e)) m a
                 } deriving ( Functor
                            , Applicative
                            , Monad
@@ -63,16 +66,13 @@ newtype PrettyTypeT e m a
                            )
 
 runPrettyTypeT :: Monad m => PrettyTypeT e m a -> m a
-runPrettyTypeT = flip evalStateT (0, mempty) . unPrettyTypeT
+runPrettyTypeT = flip evalStateT (enumFrom (VarName 0), mempty) . unPrettyTypeT
 
 class PrettyM a where
   prettyM :: Monad m => a -> PrettyTypeT e m (Doc e)
 
 prettyDefault :: PrettyM a => a -> Doc e
 prettyDefault = runPrettyType . prettyM
-
-showDefault :: Pretty a => a -> String
-showDefault = show . pretty
 
 data TypeScheme = Forall [Var] (Constraint Normal) Type
 
@@ -85,7 +85,7 @@ instance PrettyM TypeScheme where
       tau' <- prettyM tau
       return $! parameters params' <+> tau'
     where
-      c' = Set.map PredicateP $ c
+      c' = Set.map PredicateP c
       alpha' = Set.fromList . map VarP $ alpha
       params = c' `Set.union` alpha'
 
@@ -218,20 +218,32 @@ instance NFData Type where
 type Var = Ident
 
 instance PrettyM Var where
-  prettyM x = do
-    (a, m) <- PrettyTypeT get
-    case IdentMap.lookup x m of
+  prettyM var = do
+    (xs, m) <- get
+    case IdentMap.lookup var m of
       Nothing -> do
-        doc <- execWriterT $ do
-          let (q, r) = a `quotRem` size
-          tell $ char $ toEnum $ r + fromEnum 'A'
-          unless (q == 0) $ tell $ pretty q
-        PrettyTypeT $ put (a + 1, IdentMap.insert x doc m)
+        let (y :| ys) = xs
+            doc = pretty y
+        put (ys, IdentMap.insert var doc m)
         return doc
       Just doc ->
         return doc
+
+get :: Monad m => PrettyTypeT e m (Stream VarName, IdentMap (Doc e))
+get = PrettyTypeT State.get
+
+put :: Monad m => (Stream VarName, IdentMap (Doc e)) -> PrettyTypeT e m ()
+put = PrettyTypeT . State.put
+
+newtype VarName = VarName Int deriving Enum
+
+instance Pretty VarName where
+  pretty (VarName x) =
+    char (toEnum (r + a)) <> if q == 0 then pretty q else mempty
     where
-      size = fromEnum 'Z' - fromEnum 'A' + 1
+      (q, r) = x `quotRem` size
+      size = fromEnum 'Z' - a + 1
+      a = fromEnum 'A'
 
 type Record = Map Label Type
 
@@ -319,13 +331,3 @@ prettyTypes = uncurry go
 
 prettyLabel :: Label -> Doc e
 prettyLabel = prettyText
-
-tupled :: Foldable f => f (Doc e) -> Doc e
-tupled = encloseSep lparen rparen (comma <> space)
-
-encloseSep :: Foldable f => Doc e -> Doc e -> Doc e -> f (Doc e) -> Doc e
-encloseSep left right sp ds0 =
-  case toList ds0 of
-    [] -> left <> right
-    [d] -> left <> d <> right
-    ds -> left <> align (hcat (zipWith (<>) (init ds) (repeat sp) ++ [last ds <> right]))

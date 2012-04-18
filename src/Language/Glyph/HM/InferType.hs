@@ -28,6 +28,7 @@ import Data.Foldable (forM_, toList)
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
+import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Data.List (foldl')
 import Data.Maybe
@@ -49,7 +50,10 @@ import Text.PrettyPrint.Free
 
 import Prelude hiding (lookup, null)
 
+import Unsafe.Coerce as Unsafe (unsafeCoerce)
+
 type Map = HashMap
+type Set = HashSet
 
 inferType :: ( Pretty a
              , MonadError TypeException m
@@ -254,9 +258,8 @@ normalize = runNormalize
           tau := tau' -> do
             psi' <- mgu tau tau'
             modifyRef d (psi' $$)
-            let changed = domain psi'
             forRefM_ c $ \ p ->
-              unless (Set.null $ changed `Set.intersection` typeVars p) $ do
+              when (psi' `isDefinedAt` p) $ do
                 modifyRef d (`u` toNonnormal (psi' $$ p))
                 modifyRef c (\\ p)
             modifyRef psi (psi' $.)
@@ -421,7 +424,7 @@ Substitution s $| xs = Substitution $ Map.intersection s xs'
 infixl 4 $|
 
 class TypeVars a where
-  typeVars :: a -> IdentSet
+  typeVars :: a -> Set Type.Var
 
 instance TypeVars Type where
   typeVars tau =
@@ -544,6 +547,13 @@ instance Apply a => Apply [a] where
 ($.) :: Substitution -> Substitution -> Substitution
 s1 $. Substitution s2 = Substitution (Map.map (s1 $$) s2) <> s1
 infixr 9 $.
+
+isDefinedAt :: (Apply a, TypeVars a) => Substitution -> a -> Bool
+Substitution psi `isDefinedAt` a =
+  not . Map.null $ psi `Map.intersection` setToMap (typeVars a)
+  where
+    setToMap :: Set a -> Map a ()
+    setToMap = Unsafe.unsafeCoerce
 
 mono :: Type -> TypeScheme
 

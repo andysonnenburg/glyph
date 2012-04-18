@@ -132,8 +132,11 @@ instance PrettyM Parameter where
     where
       go (a `HasP` ps) = do
         a' <- prettyM a
-        ps' <- mapM prettyProp ps
-        return $! a' <+> text "has" <+> props ps'
+        if' (null ps) (return $! a') $ do
+          ps' <- mapM prettyProp ps
+          return $! a' <+> text "has" <+> props ps'
+      if' True x _ = x
+      if' False _ y = y
       props =
         encloseSep mempty mempty (space <> char '&' <> space)
       prettyProp (l, tau) = do

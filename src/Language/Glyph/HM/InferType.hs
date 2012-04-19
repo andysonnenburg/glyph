@@ -62,7 +62,7 @@ inferType :: ( Pretty a
              ) => Exp a -> m TypeEnvironment
 inferType e = do
   ((psi, _c, _tau), gamma) <- run $ inferExp e
-  return $! psi $$ gamma
+  return $! gamma
   where
     run = flip runStateT mempty . flip runReaderT mempty
 
@@ -145,7 +145,7 @@ inferExp = go
     w (AbsE x e) = do
       alpha <- fresh
       (psi, c, tau) <- local' (Map.insert x (mono alpha)) $ inferExp e
-      return (psi, c, (psi $$ alpha) :->: tau)
+      return (psi $\ alpha, c, (psi $$ alpha) :->: tau)
     w (AppE e1 e2) = do
       (psi1, c1, tau1) <- lift $ inferExp e1
       (psi2, c2, tau2) <- local' (psi1 $$) $ inferExp e2
@@ -217,14 +217,15 @@ ask' :: (MonadReader r m, MonadTrans t) => t m r
 ask' = lift ask
 
 local' :: ( MonadReader TypeEnvironment m
-          , MonadState TypeEnvironment m
+          , MonadState TypeEnvironment (t m)
           , MonadTrans t
           ) => (TypeEnvironment -> TypeEnvironment) -> m a -> t m a
-local' f m = lift . local f $ do
+local' f m = do
   modify f
-  m
+  lift $ local f m
 
 type Normalize a s = ErrorT TypeException (ReaderT a (WriterT Msgs (ST s)))
+type Ref = STRef
 
 normalize :: forall a m .
              ( Pretty a
@@ -247,8 +248,8 @@ normalize = runNormalize
       d' <- newRef d
       phi' <- newRef phi
       normalizeM d' phi'
-    normalizeM :: STRef s (Constraint Nonnormal) ->
-                  STRef s Substitution ->
+    normalizeM :: Ref s (Constraint Nonnormal) ->
+                  Ref s Substitution ->
                   Normalize a s (Constraint Normal, Substitution)
     normalizeM d psi = do
       c <- newRef mempty
@@ -332,10 +333,10 @@ normalize = runNormalize
     writeRef r = lift . lift . lift . writeSTRef r
     u = flip Set.insert
     (\\) = flip Set.delete
-    uncons xs =
-      case toList xs of
-        (x:_) -> Just (x, Set.delete x xs)
-        [] -> Nothing
+    uncons xs = go . toList $ xs
+      where
+        go (x:_) = Just (x, Set.delete x xs)
+        go [] = Nothing
 
 tellMissingLabel :: ( Pretty a
                     , MonadReader a m
@@ -348,14 +349,16 @@ tellMissingLabel r l = do
 boolLabels :: Map Label Type
 boolLabels =
   Map.fromList [ ("equals", Tuple [Bool] :->: Bool)
-               , ("hashCode", Tuple [] :->: Int)
+               , ("hash", Tuple [] :->: Int)
+               , ("hashWithSalt", Tuple [Int] :->: Int)
                , ("toString", Tuple [] :->: String)
                ]
 
 intLabels :: Map Label Type
 intLabels =
   Map.fromList [ ("equals", Tuple [Int] :->: Bool)
-               , ("hashCode", Tuple [] :->: Int)
+               , ("hash", Tuple [] :->: Int)
+               , ("hashWithSalt", Tuple [Int] :->: Int)
                , ("plus", Tuple [Int] :->: Int)
                , ("minus", Tuple [Int] :->: Int)
                , ("toString", Tuple [] :->: String)
@@ -364,7 +367,8 @@ intLabels =
 doubleLabels :: Map Label Type
 doubleLabels =
   Map.fromList [ ("equals", Tuple [Double] :->: Bool)
-               , ("hashCode", Tuple [] :->: Int)
+               , ("hash", Tuple [] :->: Int)
+               , ("hashWithSalt", Tuple [Int] :->: Int)
                , ("plus", Tuple [Double] :->: Double)
                , ("minus", Tuple [Double] :->: Double)
                , ("toString", Tuple [] :->: String)
@@ -373,7 +377,8 @@ doubleLabels =
 voidLabels :: Map Label Type
 voidLabels =
   Map.fromList [ ("equals", Tuple [Void] :->: Bool)
-               , ("hashCode", Tuple [] :->: Int)
+               , ("hash", Tuple [] :->: Int)
+               , ("hashWithSalt", Tuple [Int] :->: Int)
                , ("toString", Tuple [] :->: String)
                ]
 

@@ -7,6 +7,7 @@ import Language.Glyph.Record.ExtraSet as X
 import Language.Glyph.Record.FreeVars as X
 import Language.Glyph.Record.Insns as X
 import Language.Glyph.Record.Loc as X
+import Language.Glyph.Record.Module as X
 import Language.Glyph.Record.Name as X
 import Language.Glyph.Record.Sort as X
 import Language.Glyph.Record.Stmts as X

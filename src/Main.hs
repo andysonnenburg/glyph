@@ -133,15 +133,15 @@ glyph Glyph {..} =
        ir <- runErrorT $ IR.fromStmts (r#.stmts)
        when dumpIR $
          liftIO $ hPrint stderr ir
-       return $ insns #= ir #| r #- stmts) >=>
+       return $ module' #= ir #| r #- stmts) >=>
    
    (\ r -> do
-     let r' = insns #= IR.mapGraph'' removeUnreachable (r#.insns) #| r #- insns
+     let r' = module' #= IR.mapGraph'' removeUnreachable (r#.module') #| r #- module'
      return r') >=>
    
    -- Type check syntax via inference
    (\ r -> do
-       let r' = insns #= fmap WrapSemigroup (r#.insns) #| r #- insns
+       let r' = module' #= fmap WrapSemigroup (r#.module') #| r #- module'
        hm <- liftM (fmap (unwrapSemigroup memptyLoc)) $ IR.toHM r'
        when dumpHM $
          liftIO $ hPrint stderr hm

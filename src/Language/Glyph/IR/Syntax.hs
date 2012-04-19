@@ -1,10 +1,16 @@
 {-# LANGUAGE
-    DeriveDataTypeable
+    DataKinds
+  , DeriveDataTypeable
+  , FlexibleInstances
   , GADTs
   , ScopedTypeVariables
-  , StandaloneDeriving #-}
+  , StandaloneDeriving
+  , TypeFamilies #-}
 module Language.Glyph.IR.Syntax
        ( module X
+       , MaybeT (..)
+       , MaybeF (..)
+       , Module (..)
        , Fun (..)
        , Insn (..)
        , WrappedInsn (..)
@@ -32,17 +38,66 @@ import Language.Glyph.Syntax as X (MethodName,
                                    ident,
                                    prettyText)
 
-data Fun a = Fun Ident Params (Insns a) Vars (Funs a) deriving Typeable
+data MaybeT bool a where
+  NothingT :: MaybeT False a
+  JustT :: a -> MaybeT True a
+
+data MaybeF bool a where
+  NothingF :: MaybeF True a
+  JustF :: a -> MaybeF False a
+
+data Module lifted a = Module (Fun lifted a) (MaybeT lifted (Funs lifted a))
+
+instance Show (Module True a) where
+  show = showDefault
+
+instance Show (Module False a) where
+  show = showDefault
+
+instance Pretty (Module True a) where
+  pretty (Module main (JustT funs)) =
+    vcat (map pretty (main:funs))
+
+instance Pretty (Module False a) where
+  pretty (Module main NothingT) =
+    pretty main
+
+instance Functor (Module True) where
+  fmap f (Module main (JustT funs)) =
+    Module (fmap f main) (JustT (map (fmap f) funs))
+
+instance Functor (Module False) where
+  fmap f (Module main NothingT) =
+    Module (fmap f main) NothingT
+
+data Fun lifted a
+  = Fun
+    Ident
+    Params
+    (Insns a)
+    Vars
+    (MaybeF lifted (Funs lifted a))
+
 type Params = [Ident]
 type Insns a = Graph (Insn a) O C
 type Vars = [Ident]
-type Funs a = [Fun a]
+type Funs lifted a = [Fun lifted a]
 
-instance Show (Fun a) where
+instance Show (Fun True a) where
   show = showDefault
 
-instance Pretty (Fun a) where
-  pretty (Fun x params insns vars funs) =
+instance Pretty (Fun True a) where
+  pretty (Fun x params insns vars NothingF) =
+    text "fn" <+> pretty x <> tupled (map pretty params) <+> lbrace <>
+    (enclose linebreak linebreak . indent 2 $
+     vcat (map prettyVar vars <>
+           [prettyGraph insns])) <>
+    rbrace
+    where
+      prettyVar var = text "var" <+> pretty var <> semi
+
+instance Pretty (Fun False a) where
+  pretty (Fun x params insns vars (JustF funs)) =
     text "fn" <+> pretty x <> tupled (map pretty params) <+> lbrace <>
     (enclose linebreak linebreak . indent 2 $
      vcat (map prettyVar vars <>
@@ -52,11 +107,17 @@ instance Pretty (Fun a) where
     where
       prettyVar var = text "var" <+> pretty var <> semi
 
-instance Functor Fun where
+instance Functor (Fun True) where
   fmap f = go
     where
-      go (Fun x params insns vars funs) =
-        Fun x params (mapGraph' f insns) vars (map go funs)
+      go (Fun x params insns vars NothingF) =
+        Fun x params (mapGraph' f insns) vars NothingF
+
+instance Functor (Fun False) where
+  fmap f = go
+    where
+      go (Fun x params insns vars (JustF funs)) =
+        Fun x params (mapGraph' f insns) vars $ JustF $ map go funs
 
 data Insn a e x where
   Stmt :: a -> Stmt x -> Insn a O x
@@ -73,11 +134,18 @@ deriving instance Typeable3 Insn
 mapGraph' :: (a -> b) -> Graph (Insn a) e x -> Graph (Insn b) e x
 mapGraph' f = mapGraph (unwrapInsn . fmap f . WrapInsn)
 
-mapGraph'' :: forall a . (Graph (Insn a) O C -> Graph (Insn a) O C) -> Fun a -> Fun a
-mapGraph'' f = go
+mapGraph'' :: (Graph (Insn a) O C -> Graph (Insn a) O C) ->
+              Module False a ->
+              Module False a
+mapGraph'' f = funToModule . go . moduleToFun
   where
-    go (Fun x params insns vars funs) =
-      Fun x params (f insns) vars (map go funs)
+    go (Fun x params insns vars (JustF funs)) =
+      Fun x params (f insns) vars (JustF (map go funs))
+    moduleToFun :: Module False a -> Fun False a
+    moduleToFun (Module main NothingT) =
+      main
+    funToModule main =
+      Module main NothingT
 
 newtype WrappedInsn e x a
   = WrapInsn { unwrapInsn :: Insn a e x
@@ -86,7 +154,7 @@ newtype WrappedInsn e x a
 instance Functor (WrappedInsn e x) where
   fmap (f :: a -> b) = WrapInsn . go . unwrapInsn
     where
-      go :: forall e x . Insn a e x -> Insn b e x
+      go :: forall e' x' . Insn a e' x' -> Insn b e' x'
       go (Stmt a x) = Stmt (f a) x
       go (Expr a x expr successors') = Expr (f a) x expr successors'
       go (Label label) = Label label

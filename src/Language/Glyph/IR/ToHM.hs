@@ -1,5 +1,6 @@
 {-# LANGUAGE
-    ExistentialQuantification
+    DataKinds
+  , ExistentialQuantification
   , FlexibleContexts
   , GADTs
   , RankNTypes
@@ -23,17 +24,19 @@ import Language.Glyph.IdentMap (IdentMap, (!))
 import Language.Glyph.IdentSet (IdentSet)
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.IR.Syntax
-import Language.Glyph.Record hiding (Symtab, insns, select)
+import Language.Glyph.Record hiding (Module, Symtab, insns, select)
 import qualified Language.Glyph.Record as Record
 import Language.Glyph.Unique ()
 
 toHM :: ( Monoid a 
         , Select CallSet IdentSet sym
         , Select Record.Symtab (Symtab sym) fields
-        , Select Insns (Fun a) fields
+        , Select Record.Module (Module False a) fields
         , UniqueMonad m
         ) => Record fields -> m (Exp a)
-toHM r = toExp (r#.symtab) (r#.Record.insns)
+toHM r = toExp (r#.symtab) fun
+  where
+    Module fun NothingT = r#.module'
 
 toList :: Graph n e x -> [SomeNode n]
 toList = foldGraphNodesR f []
@@ -47,8 +50,8 @@ type SomeInsn a = SomeNode (Insn a)
 toExp :: ( Monoid a
          , Select CallSet IdentSet sym
          , UniqueMonad m
-         ) => Symtab sym -> Fun a -> m (Exp a)
-toExp m (Fun _x params (toList -> insns) vars funs) = do
+         ) => Symtab sym -> Fun False a -> m (Exp a)
+toExp m (Fun _x params (toList -> insns) vars (JustF funs)) = do
   cc <- freshIdent
   let r = initR (mconcatInsns insns) cc m
   runReaderT' r $ do
@@ -63,8 +66,8 @@ toExp m (Fun _x params (toList -> insns) vars funs) = do
 funToExp :: ( Monoid a
             , Select CallSet IdentSet sym
             , UniqueMonad m
-            ) => Fun a -> T a sym m (Exp a)
-funToExp (Fun _x params (toList -> insns) vars funs) =
+            ) => Fun False a -> T a sym m (Exp a)
+funToExp (Fun _x params (toList -> insns) vars (JustF funs)) =
   localA (mconcatInsns insns) $ do
     x <- freshIdent
     absE x $
@@ -78,7 +81,7 @@ funToExp (Fun _x params (toList -> insns) vars funs) =
 funsToExp :: ( Monoid a
              , Select CallSet IdentSet sym
              , UniqueMonad m
-             ) => [Fun a] -> T a sym m (Exp a) -> T a sym m (Exp a)
+             ) => [Fun False a] -> T a sym m (Exp a) -> T a sym m (Exp a)
 funsToExp funs e' = do
   scc <- liftM stronglyConnCompR . mapM mkNode $ funs
   foldr' letE' (map (toLet . flattenSCC) scc) e'
@@ -99,10 +102,10 @@ funsToExp funs e' = do
     fst' (x, _, _) = x
     snd' (_, x, _) = x
 
-mconcatFuns :: Monoid a => [Fun a] -> a
+mconcatFuns :: Monoid a => [Fun False a] -> a
 mconcatFuns = mconcat . map f
   where
-    f (Fun _x _params (toList -> insns) _vars funs) =
+    f (Fun _x _params (toList -> insns) _vars (JustF funs)) =
       mconcatInsns insns <> mconcatFuns funs
 
 mconcatInsns :: Monoid a => [SomeInsn a] -> a

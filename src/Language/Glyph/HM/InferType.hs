@@ -1,5 +1,6 @@
 {-# LANGUAGE
-    DataKinds
+    BangPatterns
+  , DataKinds
   , DeriveDataTypeable
   , FlexibleContexts
   , FlexibleInstances
@@ -21,8 +22,6 @@ import Control.Exception
 import Control.Monad.Error hiding (forM_)
 import Control.Monad.Reader hiding (forM_)
 import Control.Monad.ST
-import Control.Monad.State.Strict hiding (forM_)
-import Control.Monad.Writer.Strict hiding ((<>), forM_)
 
 import Data.Foldable (forM_, toList)
 import Data.Hashable
@@ -42,9 +41,11 @@ import Language.Glyph.IdentSet (IdentSet, (\\), member)
 import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.Msg hiding (singleton)
 import qualified Language.Glyph.Msg as Msg
+import Language.Glyph.State.Strict hiding (forM_)
 import Language.Glyph.Type hiding (Var)
 import qualified Language.Glyph.Type as Type
 import Language.Glyph.Unique
+import Language.Glyph.Writer.Strict hiding ((<>), forM_)
 
 import Text.PrettyPrint.Free
 
@@ -62,7 +63,7 @@ inferType :: ( Pretty a
              ) => Exp a -> m TypeEnvironment
 inferType e = do
   ((psi, _c, _tau), gamma) <- run $ inferExp e
-  return $! gamma
+  return $! psi $$ gamma
   where
     run = flip runStateT mempty . flip runReaderT mempty
 
@@ -221,8 +222,13 @@ local' :: ( MonadReader TypeEnvironment m
           , MonadTrans t
           ) => (TypeEnvironment -> TypeEnvironment) -> m a -> t m a
 local' f m = do
-  modify f
+  modify' f
   lift $ local f m
+
+modify' :: MonadState s m => (s -> s) -> m ()
+modify' f = do
+  s <- get
+  put $! f s
 
 type Normalize a s = ErrorT TypeException (ReaderT a (WriterT Msgs (ST s)))
 type Ref = STRef
@@ -397,7 +403,7 @@ generalize :: Constraint Normal ->
               Type ->
               (Constraint Normal, TypeScheme)
 generalize c gamma tau =
-  (mempty, poly alpha c tau)
+  (c, poly alpha c tau)
   where
     alpha = toList $ (typeVars tau <> typeVars c) \\ typeVars gamma
 
@@ -512,41 +518,57 @@ class Apply a where
 infixr 0 $$
 
 instance Apply Type where
-  s $$ x =
+  (!s) $$ x =
     case x of
       Type.Var alpha -> fromMaybe x $ Map.lookup alpha (unSubstitution s)
-      a :->: b -> (s $$ a) :->: (s $$ b)
+      (!a) :->: (!b) ->
+        let !a' = s $$ a 
+            !b' = s $$ b
+        in a' :->: b'
       Bool -> Bool
       Int -> Int
       Double -> Double
       String -> String
       Void -> Void
       Record xs -> Record . fmap (s $$) $ xs
-      Tuple xs -> Tuple $ s $$ xs
-      Cont a -> Cont $ s $$ a
+      Tuple !xs ->
+        let !xs' = map' (s $$) xs
+        in Tuple xs'
+      Cont !a ->
+        let !a' = s $$ a
+        in Cont a'
 
 instance Apply TypeEnvironment where
-  s $$ gamma = Map.map (s $$) gamma
+  (!s) $$ gamma = Map.map (s $$) gamma
 
 instance Apply TypeScheme where
-  Substitution s $$ Forall alpha c tau =
-    Forall alpha (s' $$ c) (s' $$ tau)
+  Substitution (!s) $$ Forall alpha (!c) (!tau) =
+    let !c' = s' $$ c
+        !tau' = s' $$ tau
+    in Forall alpha c' tau'
     where
       s' = Substitution $ deleteList alpha s
 
 instance Apply (Predicate a) where
-  s $$ p = go p
+  (!s) $$ p = go p
     where
-      go (a `Has` (l, b)) =
-        (s $$ a) `Has` (l, s $$ b)
-      go (tau1 := tau2) =
-        (s $$ tau1) := (s $$ tau2)
+      go ((!a) `Has` (l, !b)) =
+        let !a' = s $$ a
+            !b' = s $$ b
+        in a' `Has` (l, b')
+      go ((!tau1) := (!tau2)) =
+        let !tau1' = s $$ tau1
+            !tau2' = s $$ tau2
+        in tau1' := tau2'
 
 instance Apply (Constraint a) where
-  s $$ c = Set.map (s $$) c
+  (!s) $$ c = Set.map (s $$) c
 
-instance Apply a => Apply [a] where
-  s $$ xs = map (s $$) xs
+map' :: (a -> b) -> [a] -> [b]
+map' _ [] = []
+map' f (x:xs) = let !x' = f x
+                    !xs' = map' f xs
+                in x':xs'
 
 ($.) :: Substitution -> Substitution -> Substitution
 s1 $. Substitution s2 = Substitution (Map.map (s1 $$) s2) <> s1

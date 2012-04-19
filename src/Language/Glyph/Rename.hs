@@ -186,7 +186,7 @@ withScope m = do
   put $! s { scope = mempty, scopes = scope : scopes }
   a <- m
   modify' $ \ s' -> s' { scope, scopes }
-  return a
+  return $! a
 
 modify' :: MonadState s m => (s -> s) -> m ()
 modify' f = do

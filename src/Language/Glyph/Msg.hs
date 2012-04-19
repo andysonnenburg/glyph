@@ -7,6 +7,8 @@ module Language.Glyph.Msg
        , singleton
        ) where
 
+import Data.Semigroup
+
 import Text.PrettyPrint.Free
 
 data Msg = Msg MsgType SomePretty SomePretty

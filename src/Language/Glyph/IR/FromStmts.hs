@@ -1,5 +1,6 @@
 {-# LANGUAGE
-    DeriveDataTypeable
+    DataKinds
+  , DeriveDataTypeable
   , FlexibleContexts
   , FlexibleInstances
   , FunctionalDependencies
@@ -46,9 +47,9 @@ fromStmts :: forall a m .
              , Semigroup a
              , MonadError ContFlowException m
              , UniqueMonad m
-             ) => [Glyph.Stmt a] -> m (Fun a)
+             ) => [Glyph.Stmt a] -> m (Module False a)
 fromStmts =
-  maybe fromEmpty fromNonEmpty . nonEmpty
+  liftM (flip Module NothingT) . maybe fromEmpty fromNonEmpty . nonEmpty
   where
     return = Monad.return
     (>>=) = (Monad.>>=)
@@ -57,7 +58,7 @@ fromStmts =
     
     fromEmpty = do
       x <- freshIdent
-      return $ Fun x mempty (mkLast ReturnVoid) mempty mempty
+      return $ Fun x mempty (mkLast ReturnVoid) mempty (JustF mempty)
     
     fromNonEmpty stmts = do
       x <- freshIdent
@@ -82,12 +83,12 @@ fromStmts =
         funM :: ( MonadError ContFlowException m'
                 , MonadReader (R a) m'
                 , UniqueMonad m'
-                ) => Ident -> [Ident] -> [Glyph.Stmt a] -> m' (Fun a)
+                ) => Ident -> [Ident] -> [Glyph.Stmt a] -> m' (Fun False a)
         funM x params stmts' = do
           insns <- insnsM stmts'
           let vars = varsQ stmts'
           funs <- funsM stmts'
-          return $ Fun x params insns vars funs
+          return $ Fun x params insns vars (JustF funs)
 
         funsQ :: forall b m' .
                  Monad.Monad m' =>

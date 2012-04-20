@@ -1,6 +1,7 @@
-{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE DeriveDataTypeable, Rank2Types #-}
 module Language.Glyph.Generics
        ( module Data.Generics
+       , NoData (..)
        , everythingButFuns
        , everythingThisScope
        , everywhereButM'
@@ -104,3 +105,10 @@ ext1M' :: ( Monad m
 ext1M' def ext = unM (M def `ext1` M ext)
 
 newtype M m x = M { unM :: x -> m (x, Bool) }
+
+newtype NoData a = NoData { unNoData :: a } deriving Typeable
+
+instance Typeable a => Data (NoData a) where
+  toConstr _ = error "toConstr"
+  gunfold _ _ = error "gunfold"
+  dataTypeOf _ = mkNoRepType "Language.Glyph.Generics.NoData"

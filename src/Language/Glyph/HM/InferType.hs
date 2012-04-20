@@ -67,7 +67,12 @@ inferType e = do
   (Inferred psi _c _tau, gamma) <- run $ inferExp e
   return $! psi $$ gamma
   where
-    run = flip runStateT mempty
+    run = flip runStateT initS . flip runReaderT mempty
+
+type S = TypeEnvironment
+
+initS :: S
+initS = mempty
 
 type TypeEnvironment = Map Ident TypeScheme
 
@@ -132,7 +137,8 @@ data Inferred = Inferred !Substitution !(Constraint Normal) !Type
 
 inferExp :: ( Pretty a
             , MonadError TypeException m
-            , MonadState TypeEnvironment m
+            , MonadReader TypeEnvironment m
+            , MonadState S m
             , MonadWriter Msgs m
             , UniqueMonad m
             ) =>
@@ -143,33 +149,29 @@ inferExp = go
     go (Exp a x) =
       runReaderT (w x) a
     w (VarE x) = do
-      sigma <- lookup x
+      sigma <- lift $ lookup x
       (c, tau) <- instantiate sigma
       return $! Inferred mempty c tau
     w (AbsE x e) = do
       alpha <- fresh
-      insert x (mono alpha)
-      Inferred psi c tau <- inferExp e
+      Inferred psi c tau <- lift $ insert x (mono alpha) $ inferExp e
       return $! Inferred psi c ((psi $$ alpha) :->: tau)
     w (AppE e1 e2) = do
-      Inferred psi1 c1 tau1 <- inferExp e1
-      Inferred psi2 c2 tau2 <- inferExp e2
+      Inferred psi1 c1 tau1 <- lift $ inferExp e1
+      Inferred psi2 c2 tau2 <- lift $ local (psi1 $$) $ inferExp e2
       alpha <- fresh
       let d = Set.map toNonnormal ((psi2 $$ c1) <> c2) <>
               Set.singleton ((psi2 $$ tau1) := tau2 :->: alpha)
-          psi' = psi2 $. psi1
-      Normalized c psi <- normalize d psi'
-      return $! Inferred psi c (psi $$ alpha)
+      Normalized c psi <- normalize d
+      return $! Inferred (psi $. psi2 $. psi1) c (psi $$ alpha)
     w (LetE x e e') = do
       Inferred psi1 c1 tau <- lift $ inferExp e
-      gamma <- get
+      gamma <- lift ask
       let (c2, sigma) = generalize c1 (psi1 $$ gamma) tau
-      insert x sigma
-      Inferred psi2 c3 tau' <- inferExp e'
+      Inferred psi2 c3 tau' <- lift $ local (psi1 $$) $ insert x sigma $ inferExp e'
       let d = (psi2 $$ c2) <> c3
-          psi' = psi2 $. psi1
-      Normalized c psi <- normalize (Set.map toNonnormal d) psi'
-      return $! Inferred psi c (psi $$ tau')
+      Normalized c psi <- normalize (Set.map toNonnormal d)
+      return $! Inferred (psi $. psi2 $. psi1) c (psi $$ tau')
     w (LitE lit) =
       inferLit lit
     w (MkTuple x) = do
@@ -219,8 +221,15 @@ inferLit x =
         StringL _ -> String
         VoidL -> Void
 
-insert :: MonadState TypeEnvironment m => Ident -> TypeScheme -> m ()
-insert x sigma = modify' $ Map.insert x sigma
+insert :: ( MonadReader TypeEnvironment m
+          , MonadState S m
+          ) =>
+          Ident -> TypeScheme -> m a -> m a
+insert x sigma m = do
+  modify' f
+  local f m
+  where
+    f = Map.insert x sigma
 
 modify' :: MonadState s m => (s -> s) -> m ()
 modify' f = do
@@ -240,12 +249,11 @@ normalize :: forall a m .
              , UniqueMonad m
              ) =>
              Constraint Nonnormal ->
-             Substitution ->
              m Normalized
 normalize = runNormalize
   where
-    runNormalize d phi =
-      run (normalizeM' d phi)
+    runNormalize d =
+      run (normalizeM' d mempty)
     normalizeM' :: Constraint Nonnormal ->
                    Substitution ->
                    Normalize a s Normalized
@@ -408,12 +416,12 @@ generalize c gamma tau =
     alpha = (typeVars tau <> typeVars c) \\ typeVars gamma
 
 lookup :: ( MonadError TypeException m
-          , MonadState TypeEnvironment m
+          , MonadReader TypeEnvironment m
           , MonadWriter Msgs m
           , UniqueMonad m
           ) => Ident -> m TypeScheme
 lookup x =
-  get >>=
+  ask >>=
   maybe (throwError VarNotFound) return .
   Map.lookup x
 
@@ -517,7 +525,7 @@ infixr 0 $$
 instance Apply Type where
   (!s) $$ x =
     case x of
-      Type.Var alpha -> fromMaybe x $ Map.lookup alpha (unSubstitution s)
+      Type.Var alpha -> Map.lookupDefault x alpha (unSubstitution s)
       (!a) :->: (!b) ->
         let !a' = s $$ a 
             !b' = s $$ b

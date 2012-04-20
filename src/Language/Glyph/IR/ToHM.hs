@@ -16,6 +16,7 @@ import Control.Monad.Reader
 import Data.Graph (flattenSCC, stronglyConnCompR)
 import Data.Monoid
 
+import Language.Glyph.Generics
 import Language.Glyph.Hoopl
 import Language.Glyph.HM.Syntax (Exp, Label)
 import qualified Language.Glyph.HM.Syntax as HM
@@ -28,7 +29,8 @@ import Language.Glyph.Record hiding (Module, Symtab, insns, select)
 import qualified Language.Glyph.Record as Record
 import Language.Glyph.Unique ()
 
-toHM :: ( Monoid a 
+toHM :: ( Monoid a
+        , Typeable a
         , Select CallSet IdentSet sym
         , Select Record.Symtab (Symtab sym) fields
         , Select Record.Module (Module False a) fields
@@ -48,6 +50,7 @@ data SomeNode n = forall e x . SomeNode !(n e x)
 type SomeInsn a = SomeNode (Insn a)
 
 toExp :: ( Monoid a
+         , Typeable a
          , Select CallSet IdentSet sym
          , UniqueMonad m
          ) => Symtab sym -> Fun False a -> m (Exp a)
@@ -64,6 +67,7 @@ toExp m (Fun _x params (toList -> insns) vars (JustF funs)) = do
         absE cc (insnsToExp insns)
 
 funToExp :: ( Monoid a
+            , Typeable a
             , Select CallSet IdentSet sym
             , UniqueMonad m
             ) => Fun False a -> T a sym m (Exp a)
@@ -79,6 +83,7 @@ funToExp (Fun _x params (toList -> insns) vars (JustF funs)) =
         absE cc (localCC cc $ insnsToExp insns)
 
 funsToExp :: ( Monoid a
+             , Typeable a
              , Select CallSet IdentSet sym
              , UniqueMonad m
              ) => [Fun False a] -> T a sym m (Exp a) -> T a sym m (Exp a)

@@ -1,14 +1,16 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 module Language.Glyph.Monoid
        ( module X
        , WrappedSemigroup (..)
        , unwrapSemigroup
        ) where
 
+import Data.Data
 import Data.Semigroup as X
 
 data WrappedSemigroup a
   = Mempty
-  | WrapSemigroup a
+  | WrapSemigroup a deriving (Typeable, Data)
 
 instance Semigroup a => Monoid (WrappedSemigroup a) where
   mempty = Mempty

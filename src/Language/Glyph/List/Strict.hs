@@ -45,7 +45,7 @@ instance Foldable List where
       go Nil = z
       go (y :| ys) = y `k` go ys
 
-  foldl f z0 xs0 = go z0 xs0
+  foldl f = go
     where
       go z Nil = z
       go z (x :| xs) = go (f z x) xs

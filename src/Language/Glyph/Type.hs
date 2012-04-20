@@ -27,10 +27,10 @@ module Language.Glyph.Type
 
 import Control.Applicative
 import Control.DeepSeq
-import Control.Monad.Identity
-import Control.Monad.State.Strict hiding (get, put)
+import Control.Monad.Identity hiding (mapM)
+import Control.Monad.State.Strict hiding (get, mapM, put)
 import qualified Control.Monad.State.Strict as State
-import Control.Monad.Writer hiding ((<>))
+import Control.Monad.Writer hiding ((<>), mapM)
 
 import Data.Data
 import Data.Foldable
@@ -39,15 +39,17 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
+import Data.Traversable
 
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
+import Language.Glyph.List.Strict (List)
 import Language.Glyph.Pretty
 import Language.Glyph.Stream
 import Language.Glyph.Syntax (MethodName, prettyText)
 
-import Prelude hiding (enumFrom)
+import Prelude hiding (enumFrom, mapM)
 
 type Map = HashMap
 type Set = HashSet
@@ -75,7 +77,7 @@ class PrettyM a where
 prettyDefault :: PrettyM a => a -> Doc e
 prettyDefault = runPrettyType . prettyM
 
-data TypeScheme = Forall [Var] (Constraint Normal) Type
+data TypeScheme = Forall (Set Var) (Constraint Normal) Type
 
 instance Show TypeScheme where
   show = showDefault
@@ -93,7 +95,7 @@ instance PrettyM TypeScheme where
       return $! parameters params' <+> tau'
     where
       c' = Set.fromList . concatParameters . map fromPredicate . toList $ c
-      alpha' = Set.fromList . map fromVar $ alpha
+      alpha' = Set.map fromVar alpha
       params = c' `Set.union` alpha'
 
 parameters :: Foldable f => f (Doc e) -> Doc e
@@ -152,7 +154,7 @@ data Type
   | String
   | Void
   | Record Record
-  | Tuple [Type]
+  | Tuple (List Type)
   | Cont Type deriving (Eq, Typeable)
 infixr 0 :->:
 

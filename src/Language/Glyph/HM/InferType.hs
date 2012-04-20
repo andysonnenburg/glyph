@@ -23,13 +23,12 @@ import Control.Monad.Error hiding (forM_)
 import Control.Monad.Reader hiding (forM_)
 import Control.Monad.ST
 
-import Data.Foldable (forM_, toList)
+import Data.Foldable (foldr, forM_, toList)
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import Data.List (foldl')
 import Data.Maybe
 import Data.Semigroup
 import Data.STRef
@@ -39,6 +38,8 @@ import Language.Glyph.HM.Syntax
 import Language.Glyph.Ident
 import Language.Glyph.IdentSet (IdentSet, (\\), member)
 import qualified Language.Glyph.IdentSet as IdentSet
+import Language.Glyph.List.Strict (List, (!!))
+import qualified Language.Glyph.List.Strict as List
 import Language.Glyph.Msg hiding (singleton)
 import qualified Language.Glyph.Msg as Msg
 import Language.Glyph.State.Strict hiding (forM_)
@@ -49,7 +50,7 @@ import Language.Glyph.Writer.Strict hiding ((<>), forM_)
 
 import Text.PrettyPrint.Free
 
-import Prelude hiding (lookup, null)
+import Prelude hiding ((!!), foldr, lookup, null)
 
 import Unsafe.Coerce as Unsafe (unsafeCoerce)
 
@@ -62,7 +63,7 @@ inferType :: ( Pretty a
              , UniqueMonad m
              ) => Exp a -> m TypeEnvironment
 inferType e = do
-  (Output psi _c _tau, gamma) <- run $ inferExp e
+  (Inferred psi _c _tau, gamma) <- run $ inferExp e
   return $! psi $$ gamma
   where
     run = flip runStateT mempty . flip runReaderT mempty
@@ -126,7 +127,7 @@ instance Error TypeException where
 
 instance Exception TypeException
 
-data Output = Output !Substitution !(Constraint Normal) !Type
+data Inferred = Inferred !Substitution !(Constraint Normal) !Type
 
 inferExp :: ( Pretty a
             , MonadError TypeException m
@@ -136,7 +137,7 @@ inferExp :: ( Pretty a
             , UniqueMonad m
             ) =>
             Exp a ->
-            m Output
+            m Inferred
 inferExp = go
   where
     go (Exp a x) = do
@@ -144,69 +145,69 @@ inferExp = go
     w (VarE x) = do
       sigma <- lookup x
       (c, tau) <- instantiate sigma
-      return $! Output mempty c tau
+      return $! Inferred mempty c tau
     w (AbsE x e) = do
       alpha <- fresh
-      Output psi c tau <- local' (Map.insert x (mono alpha)) $ inferExp e
-      return $! Output (psi $\ alpha) c ((psi $$ alpha) :->: tau)
+      Inferred psi c tau <- local' (Map.insert x (mono alpha)) $ inferExp e
+      return $! Inferred (psi $\ alpha) c ((psi $$ alpha) :->: tau)
     w (AppE e1 e2) = do
-      Output psi1 c1 tau1 <- lift $ inferExp e1
-      Output psi2 c2 tau2 <- local' (psi1 $$) $ inferExp e2
+      Inferred psi1 c1 tau1 <- lift $ inferExp e1
+      Inferred psi2 c2 tau2 <- local' (psi1 $$) $ inferExp e2
       alpha <- fresh
       let d = Set.map toNonnormal ((psi2 $$ c1) <> c2) <>
               Set.singleton ((psi2 $$ tau1) := tau2 :->: alpha)
           psi' = psi2 $. psi1
-      c :*: psi <- normalize d psi'
-      return $! Output psi c (psi $$ alpha)
+      Normalized c psi <- normalize d psi'
+      return $! Inferred psi c (psi $$ alpha)
     w (LetE x e e') = do
-      Output psi1 c1 tau <- lift $ inferExp e
+      Inferred psi1 c1 tau <- lift $ inferExp e
       gamma <- ask'
       let (c2, sigma) = generalize c1 (psi1 $$ gamma) tau
-      Output psi2 c3 tau' <- local' (Map.insert x sigma . (psi1 $$)) $ inferExp e'
+      Inferred psi2 c3 tau' <- local' (Map.insert x sigma . (psi1 $$)) $ inferExp e'
       let d = (psi2 $$ c2) <> c3
           psi' = psi2 $. psi1
-      c :*: psi <- normalize (Set.map toNonnormal d) psi'
-      return $! Output psi c (psi $$ tau')
+      Normalized c psi <- normalize (Set.map toNonnormal d) psi'
+      return $! Inferred psi c (psi $$ tau')
     w (LitE lit) =
       inferLit lit
     w (MkTuple x) = do
-      alphas <- replicateM x fresh
-      return $! Output mempty mempty (foldr (:->:) (Tuple alphas) alphas)
+      alphas <- List.replicateM x fresh
+      return $! Inferred mempty mempty (foldr (:->:) (Tuple alphas) alphas)
     w (Select x y) = do
-      alphas <- replicateM y fresh
-      return $! Output mempty mempty (Tuple alphas :->: (alphas !! x))
+      alphas <- List.replicateM y fresh
+      return $! Inferred mempty mempty (Tuple alphas :->: (alphas !! x))
     w (Access l) = do
       a <- fresh
       b <- fresh
-      return $! Output mempty (Set.singleton $ a `Has` (l, b)) (a :->: b)
+      return $! Inferred mempty (Set.singleton $ a `Has` (l, b)) (a :->: b)
     w Undefined = do
       alpha <- fresh
-      return $! Output mempty mempty alpha
+      return $! Inferred mempty mempty alpha
     w AsTypeOf = do
       a <- fresh
-      return $! Output mempty mempty (a :->: a :->: a)
+      return $! Inferred mempty mempty (a :->: a :->: a)
     w Fix = do
       a <- fresh
-      return $! Output mempty mempty ((a :->: a) :->: a)
+      return $! Inferred mempty mempty ((a :->: a) :->: a)
     w RunCont = do
       a <- fresh
-      return $! Output mempty mempty (Cont a :->: a)
+      return $! Inferred mempty mempty (Cont a :->: a)
     w Return = do
       a <- fresh
-      return $! Output mempty mempty (a :->: Cont a)
+      return $! Inferred mempty mempty (a :->: Cont a)
     w Then = do
       a <- fresh
       b <- fresh
-      return $! Output mempty mempty (Cont a :->: Cont b :->: Cont b)
+      return $! Inferred mempty mempty (Cont a :->: Cont b :->: Cont b)
     w CallCC = do
       a <- fresh
       b <- fresh
-      return $! Output mempty mempty (((a :->: Cont b) :->: Cont a) :->: Cont a)
+      return $! Inferred mempty mempty (((a :->: Cont b) :->: Cont a) :->: Cont a)
 
 inferLit :: Monad m =>
-            Lit -> m Output
+            Lit -> m Inferred
 inferLit x =
-  return $! Output mempty mempty tau
+  return $! Inferred mempty mempty tau
   where
     tau =
       case x of
@@ -235,7 +236,7 @@ modify' f = do
 type Normalize a s = ErrorT TypeException (ReaderT a (WriterT Msgs (ST s)))
 type Ref = STRef
 
-data Normalized = !(Constraint Normal) :*: !Substitution
+data Normalized = Normalized !(Constraint Normal) !Substitution
 
 normalize :: forall a m .
              ( Pretty a
@@ -308,7 +309,7 @@ normalize = runNormalize
             tellMissingLabel tau l
           tau@(Cont _) `Has` (l, _) ->
             tellMissingLabel tau l
-      (:*:) <$> readRef c <*> readRef psi
+      Normalized <$> readRef c <*> readRef psi
     (d `forAll` (a, l)) f = do
       d' <- readRef d
       forM_ d' $ \ p ->
@@ -360,38 +361,38 @@ tellMissingLabel r l = do
 
 boolLabels :: Map Label Type
 boolLabels =
-  Map.fromList [ ("equals", Tuple [Bool] :->: Bool)
-               , ("hash", Tuple [] :->: Int)
-               , ("hashWithSalt", Tuple [Int] :->: Int)
-               , ("toString", Tuple [] :->: String)
+  Map.fromList [ ("equals", Tuple (List.singleton Bool) :->: Bool)
+               , ("hash", Tuple mempty :->: Int)
+               , ("hashWithSalt", Tuple (List.singleton Int) :->: Int)
+               , ("toString", Tuple mempty :->: String)
                ]
 
 intLabels :: Map Label Type
 intLabels =
-  Map.fromList [ ("equals", Tuple [Int] :->: Bool)
-               , ("hash", Tuple [] :->: Int)
-               , ("hashWithSalt", Tuple [Int] :->: Int)
-               , ("plus", Tuple [Int] :->: Int)
-               , ("minus", Tuple [Int] :->: Int)
-               , ("toString", Tuple [] :->: String)
+  Map.fromList [ ("equals", Tuple (List.singleton Int) :->: Bool)
+               , ("hash", Tuple mempty :->: Int)
+               , ("hashWithSalt", Tuple (List.singleton Int) :->: Int)
+               , ("plus", Tuple (List.singleton Int) :->: Int)
+               , ("minus", Tuple (List.singleton Int) :->: Int)
+               , ("toString", Tuple mempty :->: String)
                ]
 
 doubleLabels :: Map Label Type
 doubleLabels =
-  Map.fromList [ ("equals", Tuple [Double] :->: Bool)
-               , ("hash", Tuple [] :->: Int)
-               , ("hashWithSalt", Tuple [Int] :->: Int)
-               , ("plus", Tuple [Double] :->: Double)
-               , ("minus", Tuple [Double] :->: Double)
-               , ("toString", Tuple [] :->: String)
+  Map.fromList [ ("equals", Tuple (List.singleton Double) :->: Bool)
+               , ("hash", Tuple mempty :->: Int)
+               , ("hashWithSalt", Tuple (List.singleton Int) :->: Int)
+               , ("plus", Tuple (List.singleton Double) :->: Double)
+               , ("minus", Tuple (List.singleton Double) :->: Double)
+               , ("toString", Tuple mempty :->: String)
                ]
 
 voidLabels :: Map Label Type
 voidLabels =
-  Map.fromList [ ("equals", Tuple [Void] :->: Bool)
-               , ("hash", Tuple [] :->: Int)
-               , ("hashWithSalt", Tuple [Int] :->: Int)
-               , ("toString", Tuple [] :->: String)
+  Map.fromList [ ("equals", Tuple (List.singleton Void) :->: Bool)
+               , ("hash", Tuple mempty :->: Int)
+               , ("hashWithSalt", Tuple (List.singleton Int) :->: Int)
+               , ("toString", Tuple mempty :->: String)
                ]
 
 fresh :: UniqueMonad m => m Type
@@ -399,10 +400,12 @@ fresh = liftM Type.Var freshIdent
 
 instantiate :: UniqueMonad m => TypeScheme -> m (Constraint Normal, Type)
 instantiate (Forall alphas c tau) = do
-  psi <- liftM (Substitution . Map.unions) $ forM alphas $ \ alpha -> do
+  psi <- liftM (Substitution . Map.unions) $ forM alphas' $ \ alpha -> do
     beta <- fresh
     return (Map.singleton alpha beta)
   return (psi $$ c, psi $$ tau)
+  where
+    alphas' = toList alphas
 
 generalize :: Constraint Normal ->
               TypeEnvironment ->
@@ -411,7 +414,7 @@ generalize :: Constraint Normal ->
 generalize c gamma tau =
   (c, poly alpha c tau)
   where
-    alpha = toList $ (typeVars tau <> typeVars c) \\ typeVars gamma
+    alpha = (typeVars tau <> typeVars c) \\ typeVars gamma
 
 lookup :: ( MonadError TypeException (t m)
           , MonadReader TypeEnvironment m
@@ -424,13 +427,13 @@ lookup x =
   maybe (throwError VarNotFound) return .
   Map.lookup x
 
-deleteList :: (Eq k, Hashable k) => [k] -> Map k v -> Map k v
-deleteList x gamma = foldl' (flip Map.delete) gamma x
+deleteSet :: (Eq k, Hashable k) => Set k -> Map k v -> Map k v
+deleteSet x gamma = gamma `difference'` setToMap x
 
 ($\) :: Substitution -> Type -> Substitution
-Substitution s $\ tau = Substitution $ deleteList alpha s
+Substitution s $\ tau = Substitution $ deleteSet alpha s
   where
-    alpha = toList $ typeVars tau
+    alpha = typeVars tau
 infixl 4 $\ --
 
 ($|) :: Substitution -> IdentSet -> Substitution
@@ -453,7 +456,7 @@ instance TypeVars Type where
       String -> mempty
       Void -> mempty
       Record xs -> mconcat . map typeVars . toList $ xs
-      Tuple xs -> mconcat . map typeVars $ xs
+      Tuple xs -> mconcat . map typeVars . toList $ xs
       Cont a -> typeVars a
 
 instance TypeVars TypeEnvironment where
@@ -461,7 +464,7 @@ instance TypeVars TypeEnvironment where
 
 instance TypeVars TypeScheme where
   typeVars (Forall alpha c tau) =
-    (typeVars c <> typeVars tau) \\ IdentSet.fromList alpha
+    (typeVars c <> typeVars tau) \\ alpha
 
 instance TypeVars (Constraint a) where
   typeVars = mconcat . map typeVars . toList
@@ -505,8 +508,8 @@ mgu tau1 tau2 =
       return mempty
     (Void, Void) ->
       return mempty
-    (Tuple xs, Tuple ys) | length xs == length ys ->
-      foldM' mempty (zip xs ys) $ \ psi (t, s) -> do
+    (Tuple xs, Tuple ys) | List.length xs == List.length ys ->
+      foldM' mempty (List.zip xs ys) $ \ psi (t, s) -> do
         psi' <- mgu (psi $$ t) (psi $$ s)
         return $! psi' $. psi
     (Cont tau1', Cont tau2') ->
@@ -516,8 +519,8 @@ mgu tau1 tau2 =
       tell $! Msg.singleton $ mkErrorMsg a $ TypeError tau1 tau2
       return mempty
 
-foldM' :: Monad m => a -> [b] -> (a -> b -> m a) -> m a
-foldM' a bs f = foldM f a bs
+foldM' :: Monad m => a -> List b -> (a -> b -> m a) -> m a
+foldM' a bs f = List.foldM f a bs
 
 class Apply a where
   ($$) :: Substitution -> a -> a
@@ -538,7 +541,7 @@ instance Apply Type where
       Void -> Void
       Record xs -> Record . fmap (s $$) $ xs
       Tuple !xs ->
-        let !xs' = map' (s $$) xs
+        let !xs' = fmap (s $$) xs
         in Tuple xs'
       Cont !a ->
         let !a' = s $$ a
@@ -553,7 +556,7 @@ instance Apply TypeScheme where
         !tau' = s' $$ tau
     in Forall alpha c' tau'
     where
-      s' = Substitution $ deleteList alpha s
+      s' = Substitution $ deleteSet alpha s
 
 instance Apply (Predicate a) where
   (!s) $$ p = go p
@@ -570,12 +573,6 @@ instance Apply (Predicate a) where
 instance Apply (Constraint a) where
   (!s) $$ c = Set.map (s $$) c
 
-map' :: (a -> b) -> [a] -> [b]
-map' _ [] = []
-map' f (x:xs) = let !x' = f x
-                    !xs' = map' f xs
-                in x':xs'
-
 ($.) :: Substitution -> Substitution -> Substitution
 s1 $. Substitution s2 = Substitution (Map.map (s1 $$) s2) <> s1
 infixr 9 $.
@@ -583,13 +580,19 @@ infixr 9 $.
 isDefinedAt :: (Apply a, TypeVars a) => Substitution -> a -> Bool
 Substitution psi `isDefinedAt` a =
   not . Map.null $ psi `Map.intersection` setToMap (typeVars a)
-  where
-    setToMap :: Set a -> Map a ()
-    setToMap = Unsafe.unsafeCoerce
 
 mono :: Type -> TypeScheme
 
 mono = Forall mempty mempty
 
-poly :: [Type.Var] -> Constraint Normal -> Type -> TypeScheme
+poly :: Set Type.Var -> Constraint Normal -> Type -> TypeScheme
 poly = Forall
+
+difference' :: (Eq k, Hashable k) => Map k v -> Map k w -> Map k v
+difference' a b = Map.foldlWithKey' f a b
+  where
+    f a' k _ = Map.delete k a'
+
+setToMap :: Set a -> Map a ()
+{-# INLINE setToMap #-}
+setToMap = Unsafe.unsafeCoerce

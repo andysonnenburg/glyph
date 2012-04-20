@@ -20,7 +20,7 @@ import Control.Monad.Error
 import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Control.Monad.Writer
+import Control.Monad.Writer.Strict
 
 import Language.Glyph.Stream
 

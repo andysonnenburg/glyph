@@ -62,7 +62,7 @@ inferType :: ( Pretty a
              , UniqueMonad m
              ) => Exp a -> m TypeEnvironment
 inferType e = do
-  ((psi, _c, _tau), gamma) <- run $ inferExp e
+  (Output psi _c _tau, gamma) <- run $ inferExp e
   return $! psi $$ gamma
   where
     run = flip runStateT mempty . flip runReaderT mempty
@@ -126,6 +126,8 @@ instance Error TypeException where
 
 instance Exception TypeException
 
+data Output = Output !Substitution !(Constraint Normal) !Type
+
 inferExp :: ( Pretty a
             , MonadError TypeException m
             , MonadReader TypeEnvironment m
@@ -134,77 +136,77 @@ inferExp :: ( Pretty a
             , UniqueMonad m
             ) =>
             Exp a ->
-            m (Substitution, Constraint Normal, Type)
+            m Output
 inferExp = go
   where
-    go (Exp a x) =
+    go (Exp a x) = do
       runReaderT (w x) a
     w (VarE x) = do
       sigma <- lookup x
       (c, tau) <- instantiate sigma
-      return (mempty, c, tau)
+      return $! Output mempty c tau
     w (AbsE x e) = do
       alpha <- fresh
-      (psi, c, tau) <- local' (Map.insert x (mono alpha)) $ inferExp e
-      return (psi $\ alpha, c, (psi $$ alpha) :->: tau)
+      Output psi c tau <- local' (Map.insert x (mono alpha)) $ inferExp e
+      return $! Output (psi $\ alpha) c ((psi $$ alpha) :->: tau)
     w (AppE e1 e2) = do
-      (psi1, c1, tau1) <- lift $ inferExp e1
-      (psi2, c2, tau2) <- local' (psi1 $$) $ inferExp e2
+      Output psi1 c1 tau1 <- lift $ inferExp e1
+      Output psi2 c2 tau2 <- local' (psi1 $$) $ inferExp e2
       alpha <- fresh
       let d = Set.map toNonnormal ((psi2 $$ c1) <> c2) <>
               Set.singleton ((psi2 $$ tau1) := tau2 :->: alpha)
           psi' = psi2 $. psi1
-      (c, psi) <- normalize d psi'
-      return (psi, c, psi $$ alpha)
+      c :*: psi <- normalize d psi'
+      return $! Output psi c (psi $$ alpha)
     w (LetE x e e') = do
-      (psi1, c1, tau) <- lift $ inferExp e
+      Output psi1 c1 tau <- lift $ inferExp e
       gamma <- ask'
       let (c2, sigma) = generalize c1 (psi1 $$ gamma) tau
-      (psi2, c3, tau') <- local' (Map.insert x sigma . (psi1 $$)) $ inferExp e'
+      Output psi2 c3 tau' <- local' (Map.insert x sigma . (psi1 $$)) $ inferExp e'
       let d = (psi2 $$ c2) <> c3
           psi' = psi2 $. psi1
-      (c, psi) <- normalize (Set.map toNonnormal d) psi'
-      return (psi, c, psi $$ tau')
+      c :*: psi <- normalize (Set.map toNonnormal d) psi'
+      return $! Output psi c (psi $$ tau')
     w (LitE lit) =
       inferLit lit
     w (MkTuple x) = do
       alphas <- replicateM x fresh
-      return (mempty, mempty, foldr (:->:) (Tuple alphas) alphas)
+      return $! Output mempty mempty (foldr (:->:) (Tuple alphas) alphas)
     w (Select x y) = do
       alphas <- replicateM y fresh
-      return (mempty, mempty, Tuple alphas :->: (alphas !! x))
+      return $! Output mempty mempty (Tuple alphas :->: (alphas !! x))
     w (Access l) = do
       a <- fresh
       b <- fresh
-      return (mempty, Set.singleton (a `Has` (l, b)), a :->: b)
+      return $! Output mempty (Set.singleton $ a `Has` (l, b)) (a :->: b)
     w Undefined = do
       alpha <- fresh
-      return (mempty, mempty, alpha)
+      return $! Output mempty mempty alpha
     w AsTypeOf = do
       a <- fresh
-      return (mempty, mempty, a :->: a :->: a)
+      return $! Output mempty mempty (a :->: a :->: a)
     w Fix = do
       a <- fresh
-      return (mempty, mempty, (a :->: a) :->: a)
+      return $! Output mempty mempty ((a :->: a) :->: a)
     w RunCont = do
       a <- fresh
-      return (mempty, mempty, Cont a :->: a)
+      return $! Output mempty mempty (Cont a :->: a)
     w Return = do
       a <- fresh
-      return (mempty, mempty, a :->: Cont a)
+      return $! Output mempty mempty (a :->: Cont a)
     w Then = do
       a <- fresh
       b <- fresh
-      return (mempty, mempty, Cont a :->: Cont b :->: Cont b)
+      return $! Output mempty mempty (Cont a :->: Cont b :->: Cont b)
     w CallCC = do
       a <- fresh
       b <- fresh
-      return (mempty, mempty, ((a :->: Cont b) :->: Cont a) :->: Cont a)
+      return $! Output mempty mempty (((a :->: Cont b) :->: Cont a) :->: Cont a)
 
 inferLit :: Monad m =>
-            Lit -> m (Substitution, Constraint Normal, Type)
+            Lit -> m Output
 inferLit x =
-  return (mempty, mempty, tau)
+  return $! Output mempty mempty tau
   where
     tau =
       case x of
@@ -233,6 +235,8 @@ modify' f = do
 type Normalize a s = ErrorT TypeException (ReaderT a (WriterT Msgs (ST s)))
 type Ref = STRef
 
+data Normalized = !(Constraint Normal) :*: !Substitution
+
 normalize :: forall a m .
              ( Pretty a
              , MonadError TypeException m
@@ -242,21 +246,21 @@ normalize :: forall a m .
              ) =>
              Constraint Nonnormal ->
              Substitution ->
-             m (Constraint Normal, Substitution)
+             m Normalized
 normalize = runNormalize
   where
     runNormalize d phi =
       run (normalizeM' d phi)
     normalizeM' :: Constraint Nonnormal ->
                    Substitution ->
-                   Normalize a s (Constraint Normal, Substitution)
+                   Normalize a s Normalized
     normalizeM' d phi = do
       d' <- newRef d
       phi' <- newRef phi
       normalizeM d' phi'
     normalizeM :: Ref s (Constraint Nonnormal) ->
                   Ref s Substitution ->
-                  Normalize a s (Constraint Normal, Substitution)
+                  Normalize a s Normalized
     normalizeM d psi = do
       c <- newRef mempty
       whileJust (uncons <$> readRef d) $ \ (p, d') -> do
@@ -304,17 +308,7 @@ normalize = runNormalize
             tellMissingLabel tau l
           tau@(Cont _) `Has` (l, _) ->
             tellMissingLabel tau l
-      (,) <$> readRef c <*> readRef psi
-    whileJust m f = go
-      where
-        go = do
-          a <- m
-          case a of
-            Just j -> do
-              _ <- f j
-              go
-            Nothing ->
-              return ()
+      (:*:) <$> readRef c <*> readRef psi
     (d `forAll` (a, l)) f = do
       d' <- readRef d
       forM_ d' $ \ p ->
@@ -326,8 +320,8 @@ normalize = runNormalize
     forRefM_ ref f = do
       x <- readRef ref
       forM_ x f
-    run :: (forall s . Normalize a s (Constraint Normal, Substitution)) ->
-           m (Constraint Normal, Substitution)
+    run :: (forall s . Normalize a s Normalized) ->
+           m Normalized
     run m = do
       r <- ask
       let (a, w) = runST (runWriterT (runReaderT (runErrorT m) r))
@@ -344,13 +338,25 @@ normalize = runNormalize
         go (x:_) = Just (x, Set.delete x xs)
         go [] = Nothing
 
+whileJust :: Monad m => m (Maybe a) -> (a -> m ()) -> m ()
+whileJust m f = go
+  where
+    go = do
+      a <- m
+      case a of
+        Nothing ->
+          return ()
+        Just j -> do
+          f j
+          go
+
 tellMissingLabel :: ( Pretty a
                     , MonadReader a m
                     , MonadWriter Msgs m
                     ) => Type -> Label -> m ()
 tellMissingLabel r l = do
   a <- ask
-  tell $ Msg.singleton $ mkErrorMsg a $ MissingLabel r l
+  tell $! Msg.singleton $ mkErrorMsg a $ MissingLabel r l
 
 boolLabels :: Map Label Type
 boolLabels =
@@ -481,7 +487,7 @@ mgu tau1 tau2 =
       if x `member` typeVars tau2
       then do
         a <- ask
-        tell $ Msg.singleton $ mkErrorMsg a $ OccursCheckFailed tau1 tau2
+        tell $! Msg.singleton $ mkErrorMsg a $ OccursCheckFailed tau1 tau2
         return mempty
       else
         return $! Substitution $ Map.singleton x tau2
@@ -507,7 +513,7 @@ mgu tau1 tau2 =
       mgu tau1' tau2'
     _ -> do
       a <- ask
-      tell $ Msg.singleton $ mkErrorMsg a $ TypeError tau1 tau2
+      tell $! Msg.singleton $ mkErrorMsg a $ TypeError tau1 tau2
       return mempty
 
 foldM' :: Monad m => a -> [b] -> (a -> b -> m a) -> m a

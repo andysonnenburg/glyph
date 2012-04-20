@@ -37,13 +37,13 @@ import Data.Foldable
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
-import Data.HashSet (HashSet)
-import qualified Data.HashSet as Set
 import Data.Traversable
 
 import Language.Glyph.Ident
 import Language.Glyph.IdentMap (IdentMap)
 import qualified Language.Glyph.IdentMap as IdentMap
+import Language.Glyph.Set (Set)
+import qualified Language.Glyph.Set as Set
 import Language.Glyph.List.Strict (List)
 import Language.Glyph.Pretty
 import Language.Glyph.Stream
@@ -52,7 +52,6 @@ import Language.Glyph.Syntax (MethodName, prettyText)
 import Prelude hiding (enumFrom, mapM)
 
 type Map = HashMap
-type Set = HashSet
 
 type PrettyType e = PrettyTypeT e Identity
 

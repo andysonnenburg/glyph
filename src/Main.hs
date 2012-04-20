@@ -152,6 +152,7 @@ glyph Glyph {..} =
            whenJust (select name =<< Map.lookup x m) $ \ x' -> do
              tau' <- prettyM tau
              liftIO $ hPrint stderr $ prettyText x' <> colon <+> tau'
+       let r' = types #= gamma #| r
        return r') >=>
    
    -- Convert to bytecode representation

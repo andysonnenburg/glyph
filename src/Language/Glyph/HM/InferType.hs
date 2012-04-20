@@ -27,8 +27,6 @@ import Data.Foldable (foldr, forM_, toList)
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
-import Data.HashSet (HashSet)
-import qualified Data.HashSet as Set
 import Data.Maybe
 import Data.Semigroup
 import Data.STRef
@@ -37,12 +35,12 @@ import Data.Typeable
 
 import Language.Glyph.HM.Syntax
 import Language.Glyph.Ident
-import Language.Glyph.IdentSet (IdentSet, (\\), member)
-import qualified Language.Glyph.IdentSet as IdentSet
 import Language.Glyph.List.Strict (List, (!!))
 import qualified Language.Glyph.List.Strict as List
 import Language.Glyph.Msg hiding (singleton)
 import qualified Language.Glyph.Msg as Msg
+import Language.Glyph.Set (Set, member)
+import qualified Language.Glyph.Set as Set
 import Language.Glyph.State.Strict hiding (forM, forM_)
 import Language.Glyph.Type hiding (Var)
 import qualified Language.Glyph.Type as Type
@@ -56,7 +54,6 @@ import Prelude hiding ((!!), foldr, lookup, null)
 import Unsafe.Coerce as Unsafe (unsafeCoerce)
 
 type Map = HashMap
-type Set = HashSet
 
 inferType :: ( Pretty a
              , MonadError TypeException m
@@ -413,7 +410,7 @@ generalize :: Constraint Normal ->
 generalize c gamma tau =
   (c, poly alpha c tau)
   where
-    alpha = (typeVars tau <> typeVars c) \\ typeVars gamma
+    alpha = (typeVars tau <> typeVars c) `Set.difference` typeVars gamma
 
 lookup :: ( MonadError TypeException m
           , MonadReader TypeEnvironment m
@@ -434,7 +431,7 @@ Substitution s $\ tau = Substitution $ deleteSet alpha s
     alpha = typeVars tau
 infixl 4 $\ --
 
-($|) :: Substitution -> IdentSet -> Substitution
+($|) :: Substitution -> Set Type.Var -> Substitution
 Substitution s $| xs = Substitution $ s `Map.intersection` setToMap xs
 infixl 4 $|
 
@@ -444,7 +441,7 @@ class TypeVars a where
 instance TypeVars Type where
   typeVars tau =
     case tau of
-      Type.Var alpha -> IdentSet.singleton alpha
+      Type.Var alpha -> Set.singleton alpha
       a :->: b -> typeVars a <> typeVars b
       Int -> mempty
       Double -> mempty
@@ -460,7 +457,7 @@ instance TypeVars TypeEnvironment where
 
 instance TypeVars TypeScheme where
   typeVars (Forall alpha c tau) =
-    (typeVars c <> typeVars tau) \\ alpha
+    (typeVars c <> typeVars tau) `Set.difference` alpha
 
 instance TypeVars (Constraint a) where
   typeVars = mconcat . map typeVars . toList

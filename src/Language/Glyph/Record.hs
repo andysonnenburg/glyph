@@ -12,3 +12,4 @@ import Language.Glyph.Record.Name as X
 import Language.Glyph.Record.Sort as X
 import Language.Glyph.Record.Stmts as X
 import Language.Glyph.Record.Symtab as X
+import Language.Glyph.Record.Types as X

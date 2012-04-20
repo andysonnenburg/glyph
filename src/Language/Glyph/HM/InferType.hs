@@ -19,8 +19,8 @@ module Language.Glyph.HM.InferType
 import Control.Applicative
 import Control.DeepSeq
 import Control.Exception
-import Control.Monad.Error hiding (forM_)
-import Control.Monad.Reader hiding (forM_)
+import Control.Monad.Error hiding (forM, forM_)
+import Control.Monad.Reader hiding (forM, forM_)
 import Control.Monad.ST
 
 import Data.Foldable (foldr, forM_, toList)
@@ -32,6 +32,7 @@ import qualified Data.HashSet as Set
 import Data.Maybe
 import Data.Semigroup
 import Data.STRef
+import Data.Traversable (forM)
 import Data.Typeable
 
 import Language.Glyph.HM.Syntax
@@ -42,11 +43,11 @@ import Language.Glyph.List.Strict (List, (!!))
 import qualified Language.Glyph.List.Strict as List
 import Language.Glyph.Msg hiding (singleton)
 import qualified Language.Glyph.Msg as Msg
-import Language.Glyph.State.Strict hiding (forM_)
+import Language.Glyph.State.Strict hiding (forM, forM_)
 import Language.Glyph.Type hiding (Var)
 import qualified Language.Glyph.Type as Type
 import Language.Glyph.Unique
-import Language.Glyph.Writer.Strict hiding ((<>), forM_)
+import Language.Glyph.Writer.Strict hiding ((<>), forM, forM_)
 
 import Text.PrettyPrint.Free
 
@@ -66,7 +67,7 @@ inferType e = do
   (Inferred psi _c _tau, gamma) <- run $ inferExp e
   return $! psi $$ gamma
   where
-    run = flip runStateT mempty . flip runReaderT mempty
+    run = flip runStateT mempty
 
 type TypeEnvironment = Map Ident TypeScheme
 
@@ -131,7 +132,6 @@ data Inferred = Inferred !Substitution !(Constraint Normal) !Type
 
 inferExp :: ( Pretty a
             , MonadError TypeException m
-            , MonadReader TypeEnvironment m
             , MonadState TypeEnvironment m
             , MonadWriter Msgs m
             , UniqueMonad m
@@ -140,7 +140,7 @@ inferExp :: ( Pretty a
             m Inferred
 inferExp = go
   where
-    go (Exp a x) = do
+    go (Exp a x) =
       runReaderT (w x) a
     w (VarE x) = do
       sigma <- lookup x
@@ -148,11 +148,12 @@ inferExp = go
       return $! Inferred mempty c tau
     w (AbsE x e) = do
       alpha <- fresh
-      Inferred psi c tau <- local' (Map.insert x (mono alpha)) $ inferExp e
-      return $! Inferred (psi $\ alpha) c ((psi $$ alpha) :->: tau)
+      insert x (mono alpha)
+      Inferred psi c tau <- inferExp e
+      return $! Inferred psi c ((psi $$ alpha) :->: tau)
     w (AppE e1 e2) = do
-      Inferred psi1 c1 tau1 <- lift $ inferExp e1
-      Inferred psi2 c2 tau2 <- local' (psi1 $$) $ inferExp e2
+      Inferred psi1 c1 tau1 <- inferExp e1
+      Inferred psi2 c2 tau2 <- inferExp e2
       alpha <- fresh
       let d = Set.map toNonnormal ((psi2 $$ c1) <> c2) <>
               Set.singleton ((psi2 $$ tau1) := tau2 :->: alpha)
@@ -161,9 +162,10 @@ inferExp = go
       return $! Inferred psi c (psi $$ alpha)
     w (LetE x e e') = do
       Inferred psi1 c1 tau <- lift $ inferExp e
-      gamma <- ask'
+      gamma <- get
       let (c2, sigma) = generalize c1 (psi1 $$ gamma) tau
-      Inferred psi2 c3 tau' <- local' (Map.insert x sigma . (psi1 $$)) $ inferExp e'
+      insert x sigma
+      Inferred psi2 c3 tau' <- inferExp e'
       let d = (psi2 $$ c2) <> c3
           psi' = psi2 $. psi1
       Normalized c psi <- normalize (Set.map toNonnormal d) psi'
@@ -217,16 +219,8 @@ inferLit x =
         StringL _ -> String
         VoidL -> Void
 
-ask' :: (MonadReader r m, MonadTrans t) => t m r
-ask' = lift ask
-
-local' :: ( MonadReader TypeEnvironment m
-          , MonadState TypeEnvironment (t m)
-          , MonadTrans t
-          ) => (TypeEnvironment -> TypeEnvironment) -> m a -> t m a
-local' f m = do
-  modify' f
-  lift $ local f m
+insert :: MonadState TypeEnvironment m => Ident -> TypeScheme -> m ()
+insert x sigma = modify' $ Map.insert x sigma
 
 modify' :: MonadState s m => (s -> s) -> m ()
 modify' f = do
@@ -310,9 +304,8 @@ normalize = runNormalize
           tau@(Cont _) `Has` (l, _) ->
             tellMissingLabel tau l
       Normalized <$> readRef c <*> readRef psi
-    (d `forAll` (a, l)) f = do
-      d' <- readRef d
-      forM_ d' $ \ p ->
+    (d `forAll` (a, l)) f =
+      forRefM_ d $ \ p ->
         case p of
           Type.Var a' `Has` (l', tau') | a == a' && l == l' ->
             f tau'
@@ -399,13 +392,11 @@ fresh :: UniqueMonad m => m Type
 fresh = liftM Type.Var freshIdent
 
 instantiate :: UniqueMonad m => TypeScheme -> m (Constraint Normal, Type)
-instantiate (Forall alphas c tau) = do
-  psi <- liftM (Substitution . Map.unions) $ forM alphas' $ \ alpha -> do
-    beta <- fresh
-    return (Map.singleton alpha beta)
+instantiate (Forall alpha c tau) = do
+  psi <- liftM Substitution $ forM alpha' $ const fresh
   return (psi $$ c, psi $$ tau)
   where
-    alphas' = toList alphas
+    alpha' = setToMap alpha
 
 generalize :: Constraint Normal ->
               TypeEnvironment ->
@@ -416,14 +407,13 @@ generalize c gamma tau =
   where
     alpha = (typeVars tau <> typeVars c) \\ typeVars gamma
 
-lookup :: ( MonadError TypeException (t m)
-          , MonadReader TypeEnvironment m
-          , MonadTrans t
-          , MonadWriter Msgs (t m)
-          , UniqueMonad (t m)
-          ) => Ident -> t m TypeScheme
+lookup :: ( MonadError TypeException m
+          , MonadState TypeEnvironment m
+          , MonadWriter Msgs m
+          , UniqueMonad m
+          ) => Ident -> m TypeScheme
 lookup x =
-  ask' >>=
+  get >>=
   maybe (throwError VarNotFound) return .
   Map.lookup x
 
@@ -437,9 +427,7 @@ Substitution s $\ tau = Substitution $ deleteSet alpha s
 infixl 4 $\ --
 
 ($|) :: Substitution -> IdentSet -> Substitution
-Substitution s $| xs = Substitution $ Map.intersection s xs'
-  where
-    xs' = Map.fromList $ zip (toList xs) $ repeat ()
+Substitution s $| xs = Substitution $ s `Map.intersection` setToMap xs
 infixl 4 $|
 
 class TypeVars a where
@@ -589,9 +577,9 @@ poly :: Set Type.Var -> Constraint Normal -> Type -> TypeScheme
 poly = Forall
 
 difference' :: (Eq k, Hashable k) => Map k v -> Map k w -> Map k v
-difference' a b = Map.foldlWithKey' f a b
+difference' = Map.foldlWithKey' f
   where
-    f a' k _ = Map.delete k a'
+    f a k _ = Map.delete k a
 
 setToMap :: Set a -> Map a ()
 {-# INLINE setToMap #-}

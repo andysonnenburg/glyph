@@ -17,6 +17,7 @@ instance (Eq a, Hashable a) => Semigroup (HashSet a) where
   (<>) = union
 
 (\\) :: (Eq a, Hashable a) => HashSet a -> HashSet a -> HashSet a
+{-# INLINE (\\) #-}
 (\\) = difference
 
 type IdentSet = HashSet Ident

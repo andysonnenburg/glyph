@@ -67,7 +67,7 @@ instance Traversable List where
   mapM f as = sequence (fmap f as)
   
   {-# INLINE sequence #-}
-  sequence ms = foldr k (return Nil) ms
+  sequence = foldr k (return Nil)
     where
       k m m' = do { x <- m; xs <- m'; return (x :| xs) }
 

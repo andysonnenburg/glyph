@@ -54,8 +54,8 @@ instance (Monoid w, MonadIO m) => MonadIO (WriterT w m) where
   liftIO = lift . liftIO
 
 instance (Monoid w, Monad m) => MonadWriter w (WriterT w m) where
-  writer (a, w) = WriterT . return $! Pair a w
-  tell w = WriterT . return $! Pair () w
+  writer (a, w) = WriterT $ return $! Pair a w
+  tell w = WriterT $ return $! Pair () w
   listen m = WriterT $ do
     Pair a w <- unWriterT m
     return $! Pair (a, w) w

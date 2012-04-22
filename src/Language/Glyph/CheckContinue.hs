@@ -15,9 +15,8 @@ import Data.Generics
 
 import Language.Glyph.Msg
 import qualified Language.Glyph.Msg as Msg
+import Language.Glyph.Pretty
 import Language.Glyph.Syntax
-
-import Text.PrettyPrint.Free
 
 checkContinue :: forall a m .
                  ( Data a
@@ -28,7 +27,7 @@ checkContinue = checkContinue'
   where
     checkContinue' = runReaderT' . query
 
-    query :: forall a . Data a => a -> ReaderT Bool m ()
+    query :: forall a' . Data a' => a' -> ReaderT Bool m ()
     query =
       everythingBut (>>)
       ((return (), False) `mkQ`
@@ -75,7 +74,7 @@ data CheckContinueException
   | NoMsgError deriving Typeable
 
 instance Show CheckContinueException where
-  show = show . pretty
+  show = showDefault
 
 instance Pretty CheckContinueException where
   pretty = go

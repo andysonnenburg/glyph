@@ -15,9 +15,8 @@ import Data.Generics
 
 import Language.Glyph.Msg
 import qualified Language.Glyph.Msg as Msg
+import Language.Glyph.Pretty
 import Language.Glyph.Syntax
-
-import Text.PrettyPrint.Free
 
 checkBreak :: forall a m .
               ( Data a
@@ -28,7 +27,7 @@ checkBreak = checkBreak'
   where
     checkBreak' = runReaderT' . query
 
-    query :: forall a . Data a => a -> ReaderT Bool m ()
+    query :: forall a' . Data a' => a' -> ReaderT Bool m ()
     query =
       everythingBut (>>)
       ((return (), False) `mkQ`
@@ -74,7 +73,7 @@ data CheckBreakException
   | NoMsgError deriving Typeable
 
 instance Show CheckBreakException where
-  show = show . pretty
+  show = showDefault
 
 instance Pretty CheckBreakException where
   pretty = go

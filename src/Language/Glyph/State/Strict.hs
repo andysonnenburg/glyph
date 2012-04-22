@@ -13,11 +13,13 @@ module Language.Glyph.State.Strict
 import Compiler.Hoopl
 import Control.Applicative
 import Control.Monad as X
-import Control.Monad.Error.Class
+import Control.Monad.Error.Class hiding (catchError)
+import qualified Control.Monad.Error.Class as Error
 import Control.Monad.Fix as X
 import Control.Monad.Trans as X
 import Control.Monad.State.Class as X
-import Control.Monad.Writer.Class
+import Control.Monad.Writer.Class hiding (listen, pass)
+import qualified Control.Monad.Writer.Class as Writer
 
 data Pair a b = Pair a !b
 
@@ -72,7 +74,7 @@ instance Monad m => MonadState s (StateT s m) where
 
 instance MonadError e m => MonadError e (StateT s m) where
   throwError = lift . throwError
-  catchError = liftCatch catchError
+  catchError = liftCatch Error.catchError
 
 liftCatch :: (m (Pair a s) -> (e -> m (Pair a s)) -> m (Pair a s)) ->
              StateT s m a -> (e -> StateT s m a) -> StateT s m a
@@ -82,8 +84,8 @@ liftCatch catchError m h =
 instance MonadWriter w m => MonadWriter w (StateT s m) where
   writer = lift . writer
   tell = lift . tell
-  listen = liftListen listen
-  pass = liftPass pass
+  listen = liftListen Writer.listen
+  pass = liftPass Writer.pass
 
 liftListen :: Monad m =>
               (m (Pair a s) -> m (Pair a s, w)) ->

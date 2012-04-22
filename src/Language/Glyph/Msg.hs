@@ -9,7 +9,7 @@ module Language.Glyph.Msg
 
 import Data.Semigroup
 
-import Text.PrettyPrint.Free
+import Language.Glyph.Pretty
 
 data Msg = Msg MsgType SomePretty SomePretty
 
@@ -35,7 +35,7 @@ singleton :: Msg -> Msgs
 singleton x = [x]
 
 instance Show Msg where
-  show = show . pretty
+  show = showDefault
 
 instance Pretty Msg where
   pretty (Msg typ x y) =

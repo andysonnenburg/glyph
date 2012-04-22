@@ -11,6 +11,7 @@
   , RebindableSyntax
   , ScopedTypeVariables
   , UndecidableInstances #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 module Language.Glyph.IR.FromStmts
        ( ContFlowException (..)
        , fromStmts

@@ -13,7 +13,7 @@ module Language.Glyph.IR.ToHM
 import Compiler.Hoopl hiding (Label)
 import Control.Monad.Reader
 
-import Data.Graph (flattenSCC, stronglyConnCompR)
+import Data.Graph (SCC (..), stronglyConnCompR)
 import Data.Monoid
 
 import Language.Glyph.Generics
@@ -89,21 +89,35 @@ funsToExp :: ( Monoid a
              ) => [Fun False a] -> T a sym m (Exp a) -> T a sym m (Exp a)
 funsToExp funs e' = do
   scc <- liftM stronglyConnCompR . mapM mkNode $ funs
-  foldr' letE' (map (toLet . flattenSCC) scc) e'
+  localA (mconcatFuns funs) $ foldr' letE' scc e'
   where
     mkNode f@(Fun x _params _insns _vars _funs) = do
       m <- askSymtab
       let xs = IdentSet.toList $ (m ! x)#.callSet
       return (f, x, xs)
-    letE' (xs, map funToExp -> e) e' = localA (mconcatFuns funs) $ do
-      x <- freshIdent
-      y <- freshIdent
-      letE x (fix' (absE y $ selectList y xs $ tupleE e)) $
-        selectList x xs e'
-    toLet xs =
-      (map snd' xs, map fst' xs)
     foldr' f as b =
       foldr f b as
+
+letE' :: ( Typeable a
+         , Monoid a
+         , Select CallSet IdentSet sym
+         , UniqueMonad m
+         ) =>
+         SCC (Fun False a, Ident, [Ident]) ->
+         T a sym m (Exp a) ->
+         T a sym m (Exp a)
+letE' (AcyclicSCC (funToExp -> e, x, _)) e' =
+  letE x e e'
+letE' (CyclicSCC [(funToExp -> e, x, _)]) e' =
+  letE x (fix' (absE x e)) e'
+letE' (CyclicSCC vertices) e' = do
+  x <- freshIdent
+  y <- freshIdent
+  letE x (fix' (absE y $ selectList y xs $ tupleE e)) $
+    selectList x xs e'
+  where
+    xs = map snd' vertices
+    e = map (funToExp . fst') vertices
     fst' (x, _, _) = x
     snd' (_, x, _) = x
 

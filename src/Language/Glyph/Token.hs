@@ -10,16 +10,15 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 
 import Language.Glyph.Loc
+import Language.Glyph.Pretty
 import Language.Glyph.View
-
-import Text.PrettyPrint.Free
 
 import Prelude hiding (True, False)
 
 data Token = Token Loc TokenView
 
 instance Show Token where
-  show = show . pretty
+  show = showDefault
 
 instance Pretty Token where
   pretty (Token p v) = pretty p <> char ':' <+> pretty v
@@ -59,7 +58,7 @@ data TokenView
   | EOF
 
 instance Show TokenView where
-  show = show . pretty
+  show = showDefault
 
 instance Pretty TokenView where
   pretty x =

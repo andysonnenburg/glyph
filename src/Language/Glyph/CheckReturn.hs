@@ -15,9 +15,8 @@ import Data.Generics
 
 import Language.Glyph.Msg
 import qualified Language.Glyph.Msg as Msg
+import Language.Glyph.Pretty
 import Language.Glyph.Syntax
-
-import Text.PrettyPrint.Free
 
 checkReturn :: forall a m .
                ( Data a
@@ -28,7 +27,7 @@ checkReturn = checkReturn'
   where
     checkReturn' = runReaderT' . query
 
-    query :: forall a . Data a => a -> ReaderT Bool m ()
+    query :: forall a' . Data a' => a' -> ReaderT Bool m ()
     query =
       everythingBut (>>)
       ((return (), False) `mkQ`
@@ -60,7 +59,7 @@ data CheckReturnException
   | NoMsgError deriving Typeable
 
 instance Show CheckReturnException where
-  show = show . pretty
+  show = showDefault
 
 instance Pretty CheckReturnException where
   pretty = go

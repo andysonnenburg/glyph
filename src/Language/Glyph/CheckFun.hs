@@ -21,9 +21,8 @@ import Language.Glyph.Sort
 import Language.Glyph.Msg
 import qualified Language.Glyph.Msg as Msg
 import Language.Glyph.IdentMap (IdentMap, (!))
+import Language.Glyph.Pretty
 import Language.Glyph.Syntax
-
-import Text.PrettyPrint.Free
 
 checkFun :: forall a fields sym m .
             ( Data a
@@ -55,7 +54,7 @@ data CheckFunException
   | NoMsgError deriving Typeable
 
 instance Show CheckFunException where
-  show = show . pretty
+  show = showDefault
 
 instance Pretty CheckFunException where
   pretty = go

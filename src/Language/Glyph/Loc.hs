@@ -9,12 +9,12 @@ module Language.Glyph.Loc
 import Data.Data
 import Data.Semigroup
 
-import Text.PrettyPrint.Free
+import Language.Glyph.Pretty
 
 data Pos = Pos Int Int deriving (Eq, Ord, Typeable, Data)
 
 instance Show Pos where
-  show = show . pretty
+  show = showDefault
 
 instance Pretty Pos where
   pretty (Pos r c) = pretty r <> char ':' <> pretty c
@@ -25,7 +25,7 @@ initPos = Pos 1 0
 data Loc = Loc Pos Pos deriving (Typeable, Data)
 
 instance Show Loc where
-  show = show . pretty
+  show = showDefault
 
 instance Pretty Loc where
   pretty (Loc x y)

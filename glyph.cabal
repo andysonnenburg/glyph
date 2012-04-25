@@ -8,8 +8,6 @@ executable glyph
   other-modules:
     Language.Glyph.Lex.Internal
     Language.Glyph.Parse.Internal
-    -- Language.Glyph.ASM.Lex.Internal
-    -- Language.Glyph.ASM.Parse.Internal
   hs-source-dirs: src
   build-depends:
     base == 4.*,

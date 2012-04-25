@@ -15,6 +15,7 @@ import Data.Generics
 import qualified Data.HashMap.Strict as Map
 import qualified Data.Record as Record
 
+-- import Language.Glyph.AddAllocation
 import Language.Glyph.AddCallSet
 import Language.Glyph.AddExtraSet
 import Language.Glyph.AddFreeVars
@@ -154,6 +155,9 @@ glyph Glyph {..} =
              liftIO $ hPrint stderr $ prettyText x' <> colon <+> tau'
        let r' = types #= gamma #| r
        return r') >=>
+   
+   -- Add allocation to symbol table
+   -- addAllocation >=>
    
    -- Convert to bytecode representation
    

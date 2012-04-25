@@ -10,7 +10,8 @@
   , OverloadedStrings
   , Rank2Types
   , ScopedTypeVariables
-  , TypeSynonymInstances #-}
+  , TypeSynonymInstances
+  , ViewPatterns #-}
 module Language.Glyph.HM.InferType
        ( TypeEnvironment
        , inferType
@@ -27,6 +28,7 @@ import Data.Foldable (foldr, forM_, toList)
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
+import Data.List (partition)
 import Data.Maybe
 import Data.Semigroup
 import Data.STRef
@@ -49,7 +51,7 @@ import Language.Glyph.Writer.Strict hiding ((<>), forM, forM_)
 
 import Text.PrettyPrint.Free
 
-import Prelude hiding ((!!), foldr, lookup, null)
+import Prelude hiding ((!!), foldr, lookup)
 
 import Unsafe.Coerce as Unsafe (unsafeCoerce)
 
@@ -174,13 +176,20 @@ inferExp = go
     w (MkTuple x) = do
       alphas <- List.replicateM x fresh
       return $! Inferred mempty mempty (foldr (:->:) (Tuple alphas) alphas)
-    w (Select x y) = do
-      alphas <- List.replicateM y fresh
-      return $! Inferred mempty mempty (Tuple alphas :->: (alphas !! x))
+    w (Select i l) = do
+      alphas <- List.replicateM l fresh
+      return $! Inferred mempty mempty (Tuple alphas :->: (alphas !! i))
     w (Access l) = do
       a <- fresh
       b <- fresh
       return $! Inferred mempty (Set.singleton $ a `Has` (l, b)) (a :->: b)
+    w (Bind i l) = do
+      alpha <- List.replicateM l fresh
+      beta <- fresh
+      let tau1 = Tuple alpha :->: beta
+          (alpha', alpha'') = List.splitAt i alpha
+          tau2 = Tuple alpha'' :->: beta
+      return $! Inferred mempty mempty (Tuple (tau1 `List.cons` alpha') :->: tau2)
     w Undefined = do
       alpha <- fresh
       return $! Inferred mempty mempty alpha
@@ -394,7 +403,10 @@ voidLabels =
                ]
 
 fresh :: UniqueMonad m => m Type
-fresh = liftM Type.Var freshIdent
+fresh = liftM Type.Var freshVar
+
+freshVar :: UniqueMonad m => m Type.Var
+freshVar = freshIdent
 
 instantiate :: UniqueMonad m => TypeScheme -> m (Constraint Normal, Type)
 instantiate (Forall alpha c tau) = do
@@ -408,9 +420,13 @@ generalize :: Constraint Normal ->
               Type ->
               (Constraint Normal, TypeScheme)
 generalize c gamma tau =
-  (c, poly alpha c tau)
+  (d, poly alpha c' tau)
   where
-    alpha = (typeVars tau <> typeVars c) `Set.difference` typeVars gamma
+    (Set.fromList -> d, Set.fromList -> c') =
+      partition (\ p -> Set.null $ typeVars p `n` alpha) . toList $ c
+    alpha = (typeVars tau <> typeVars c) \\ typeVars gamma
+    n = Set.intersection
+    (\\) = Set.difference
 
 lookup :: ( MonadError TypeException m
           , MonadReader TypeEnvironment m
@@ -508,9 +524,16 @@ mgu tau1 tau2 =
     (Cont tau1', Cont tau2') ->
       mgu tau1' tau2'
     _ -> do
-      a <- ask
-      tell $! Msg.singleton $ mkErrorMsg a $ TypeError tau1 tau2
+      tellTypeError tau1 tau2
       return mempty
+
+tellTypeError :: ( Pretty a
+                 , MonadReader a m
+                 , MonadWriter Msgs m
+                 ) => Type -> Type -> m ()
+tellTypeError tau1 tau2 = do
+  a <- ask
+  tell $! Msg.singleton $ mkErrorMsg a $ TypeError tau1 tau2
 
 foldM' :: Monad m => a -> List b -> (a -> b -> m a) -> m a
 foldM' a bs f = List.foldM f a bs

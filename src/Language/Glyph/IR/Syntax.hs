@@ -1,16 +1,22 @@
 {-# LANGUAGE
     DataKinds
   , DeriveDataTypeable
+  , DeriveFunctor
+  , FlexibleContexts
   , FlexibleInstances
   , GADTs
   , ScopedTypeVariables
   , StandaloneDeriving
-  , TypeFamilies #-}
+  , TypeFamilies
+  , UndecidableInstances #-}
 module Language.Glyph.IR.Syntax
        ( module X
-       , MaybeT (..)
-       , MaybeF (..)
+       , Form (..)
+       , MaybeL (..)
+       , MaybeU (..)
        , Module (..)
+       , Object (..)
+       , Init (..)
        , Fun (..)
        , Insn (..)
        , WrappedInsn (..)
@@ -38,37 +44,112 @@ import Language.Glyph.Syntax as X (MethodName,
                                    ident,
                                    prettyText)
 
-data MaybeT bool a where
-  NothingT :: MaybeT False a
-  JustT :: a -> MaybeT True a
+import Prelude hiding (init)
 
-data MaybeF bool a where
-  NothingF :: MaybeF True a
-  JustF :: a -> MaybeF False a
+data Form
+  = Lifted
+  | Unlifted
 
-data Module lifted a = Module (Fun lifted a) (MaybeT lifted (Funs lifted a))
+data MaybeL form a where
+  NothingL :: MaybeL Unlifted a
+  JustL :: a -> MaybeL Lifted a
 
-instance Show (Module True a) where
+instance Functor (MaybeL Unlifted) where
+  fmap _ NothingL = NothingL
+
+instance Functor (MaybeL Lifted) where
+  fmap f (JustL a) = JustL (f a)
+
+data MaybeU form a where
+  NothingU :: MaybeU Lifted a
+  JustU :: a -> MaybeU Unlifted a
+
+instance Functor (MaybeU Lifted) where
+  fmap _ NothingU = NothingU
+
+instance Functor (MaybeU Unlifted) where
+  fmap f (JustU a) = JustU (f a)
+
+data Module form a = Module (Object form a)
+
+deriving instance Functor (Object form) => Functor (Module form)
+
+instance Pretty (Module form a) => Show (Module form a) where
   show = showDefault
 
-instance Show (Module False a) where
+instance Pretty (Object form a) => Pretty (Module form a) where
+  pretty (Module object) = pretty object
+
+data Object form a
+  = Object
+    (MaybeL form Fields)
+    (Init form a)
+    (MaybeL form (Funs form a))
+
+deriving instance ( Functor (MaybeL form)
+                  , Functor (Init form)
+                  , Functor (Fun form)
+                  ) => Functor (Object form)
+
+instance Show (Object Lifted a) where
   show = showDefault
 
-instance Pretty (Module True a) where
-  pretty (Module main (JustT funs)) =
-    vcat (map pretty (main:funs))
+instance Pretty (Object Lifted a) where
+  pretty (Object (JustL _fields) init (JustL funs)) =
+    text "object" <+> lbrace <>
+    (enclose linebreak linebreak . indent 2 $
+     vcat (pretty init:map pretty funs)) <>
+    rbrace
 
-instance Pretty (Module False a) where
-  pretty (Module main NothingT) =
-    pretty main
+instance Pretty (Object Unlifted a) where
+  pretty (Object NothingL init NothingL) =
+    text "object" <+> lbrace <>
+    (enclose linebreak linebreak . indent 2 $
+     pretty init) <>
+    rbrace
 
-instance Functor (Module True) where
-  fmap f (Module main (JustT funs)) =
-    Module (fmap f main) (JustT (map (fmap f) funs))
+type Fields = [Field]
 
-instance Functor (Module False) where
-  fmap f (Module main NothingT) =
-    Module (fmap f main) NothingT
+type Field = Ident
+
+data Init form a
+  = Init
+    (Insns a)
+    Vars
+    (MaybeU form (Funs form a))
+
+instance Show (Init Lifted a) where
+  show = showDefault
+
+instance Show (Init Unlifted a) where
+  show = showDefault
+
+instance Pretty (Init Lifted a) where
+  pretty (Init insns vars NothingU) =
+    vcat (map prettyVar vars <>
+          [prettyGraph insns])
+
+instance Pretty (Init Unlifted a) where
+  pretty (Init insns vars (JustU funs)) =
+    vcat (map prettyVar vars <>
+          map pretty funs <>
+          [prettyGraph insns])
+
+instance Functor (Init Lifted) where
+  fmap f = go
+    where
+      go (Init insns vars NothingU) =
+        Init (mapGraph' f insns) vars NothingU
+
+instance Functor (Init Unlifted) where
+  fmap f = go
+    where
+      go (Init insns vars (JustU funs)) =
+        Init (mapGraph' f insns) vars (JustU (map (fmap f) funs))
+
+type Insns a = Graph (Insn a) O C
+
+type Vars = [Ident]
 
 data Fun lifted a
   = Fun
@@ -76,48 +157,49 @@ data Fun lifted a
     Params
     (Insns a)
     Vars
-    (MaybeF lifted (Funs lifted a))
+    (MaybeU lifted (Funs lifted a))
 
 type Params = [Ident]
-type Insns a = Graph (Insn a) O C
-type Vars = [Ident]
+
 type Funs lifted a = [Fun lifted a]
 
-instance Show (Fun True a) where
+instance Show (Fun Lifted a) where
   show = showDefault
 
-instance Pretty (Fun True a) where
-  pretty (Fun x params insns vars NothingF) =
+instance Show (Fun Unlifted a) where
+  show = showDefault
+
+instance Pretty (Fun Lifted a) where
+  pretty (Fun x params insns vars NothingU) =
     text "fn" <+> pretty x <> tupled (map pretty params) <+> lbrace <>
     (enclose linebreak linebreak . indent 2 $
      vcat (map prettyVar vars <>
            [prettyGraph insns])) <>
     rbrace
-    where
-      prettyVar var = text "var" <+> pretty var <> semi
 
-instance Pretty (Fun False a) where
-  pretty (Fun x params insns vars (JustF funs)) =
+instance Pretty (Fun Unlifted a) where
+  pretty (Fun x params insns vars (JustU funs)) =
     text "fn" <+> pretty x <> tupled (map pretty params) <+> lbrace <>
     (enclose linebreak linebreak . indent 2 $
      vcat (map prettyVar vars <>
            map pretty funs <>
            [prettyGraph insns])) <>
     rbrace
-    where
-      prettyVar var = text "var" <+> pretty var <> semi
 
-instance Functor (Fun True) where
+prettyVar :: Ident -> Doc e
+prettyVar var = text "var" <+> pretty var <> semi
+
+instance Functor (Fun Lifted) where
   fmap f = go
     where
-      go (Fun x params insns vars NothingF) =
-        Fun x params (mapGraph' f insns) vars NothingF
+      go (Fun x params insns vars NothingU) =
+        Fun x params (mapGraph' f insns) vars NothingU
 
-instance Functor (Fun False) where
+instance Functor (Fun Unlifted) where
   fmap f = go
     where
-      go (Fun x params insns vars (JustF funs)) =
-        Fun x params (mapGraph' f insns) vars $ JustF $ map go funs
+      go (Fun x params insns vars (JustU funs)) =
+        Fun x params (mapGraph' f insns) vars $ JustU $ map go funs
 
 data Insn a e x where
   Stmt :: a -> Stmt x -> Insn a O x
@@ -134,18 +216,24 @@ deriving instance Typeable3 Insn
 mapGraph' :: (a -> b) -> Graph (Insn a) e x -> Graph (Insn b) e x
 mapGraph' f = mapGraph (unwrapInsn . fmap f . WrapInsn)
 
-mapGraph'' :: (Graph (Insn a) O C -> Graph (Insn a) O C) ->
-              Module False a ->
-              Module False a
-mapGraph'' f = funToModule . go . moduleToFun
+mapGraph'' :: forall a .
+              (Graph (Insn a) O C -> Graph (Insn a) O C) ->
+              Module Unlifted a ->
+              Module Unlifted a
+mapGraph'' f = mapModule
   where
-    go (Fun x params insns vars (JustF funs)) =
-      Fun x params (f insns) vars (JustF (map go funs))
-    moduleToFun :: Module False a -> Fun False a
-    moduleToFun (Module main NothingT) =
-      main
-    funToModule main =
-      Module main NothingT
+    mapModule :: Module Unlifted a -> Module Unlifted a
+    mapModule (Module object) =
+      Module (mapObject object)
+    mapObject :: Object Unlifted a -> Object Unlifted a
+    mapObject (Object fields init NothingL) =
+      Object fields (mapInit init) NothingL
+    mapInit :: Init Unlifted a -> Init Unlifted a
+    mapInit (Init insns vars (JustU funs)) =
+      Init (f insns) vars (JustU (map mapFun funs))
+    mapFun :: Fun Unlifted a -> Fun Unlifted a
+    mapFun (Fun x params insns vars (JustU funs)) =
+      Fun x params (f insns) vars (JustU (map mapFun funs))
 
 newtype WrappedInsn e x a
   = WrapInsn { unwrapInsn :: Insn a e x
@@ -175,6 +263,7 @@ data Expr where
   NotE :: ExprIdent -> Expr
   VarE :: Ident -> Expr
   ApplyE :: ExprIdent -> [ExprIdent] -> Expr
+  BindE :: ExprIdent -> [ExprIdent] -> Int -> Expr
   ApplyMethodE :: ExprIdent -> MethodName -> [ExprIdent] -> Expr
   AssignE :: Ident -> ExprIdent -> Expr
 
@@ -250,6 +339,8 @@ instance Pretty Expr where
         pretty name
       go (ApplyE expr exprs) =
         pretty expr <> tupled (map pretty exprs)
+      go (BindE expr exprs _) =
+        pretty expr <> text "bind" <> tupled (map pretty exprs)
       go (ApplyMethodE expr methodName exprs) =
         pretty expr <>
         char '.' <>

@@ -18,6 +18,7 @@ module Language.Glyph.HM.Syntax
        , select
        , access
        , accessE
+       , bind
        , undefined'
        , asTypeOf'
        , fix'
@@ -71,6 +72,7 @@ data ExpView a
   | MkTuple Int
   | Select Int Int
   | Access Label
+  | Bind Int Int
   | Undefined
   | AsTypeOf
   | Fix
@@ -118,10 +120,12 @@ instance PrettyPrec (ExpView a) where
         text "()"
       go (MkTuple x) =
         text "mkTuple" <> char '_' <> pretty x
-      go (Select a b) =
-        text "select" <> char '_' <> pretty a <> char '_' <> pretty b
+      go (Select i l) =
+        text "select" <> char '_' <> pretty i <> char '_' <> pretty l
       go (Access l) =
         char '.' <> prettyText l
+      go (Bind i l) =
+        text "bind" <> char '_' <> pretty i <> char '_' <> pretty l
       go Undefined =
         text "undefined"
       go AsTypeOf =
@@ -197,6 +201,11 @@ access l = do
 
 accessE :: MonadReader a m => Label -> m (Exp a) -> m (Exp a)
 accessE = appE . access
+
+bind :: MonadReader a m => Int -> Int -> m (Exp a)
+bind i l = do
+  a <- ask
+  return $ Exp a $ Bind i l
 
 undefined' :: MonadReader a m => m (Exp a)
 undefined' = do

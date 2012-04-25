@@ -41,35 +41,45 @@ import Language.Glyph.Unique ()
 
 import Text.PrettyPrint.Free
 
-import Prelude hiding (Monad (..), (=<<), last)
+import Prelude hiding (Monad (..), (=<<), init, last)
 
 fromStmts :: forall a m .
              ( Data a
              , Semigroup a
              , MonadError ContFlowException m
              , UniqueMonad m
-             ) => [Glyph.Stmt a] -> m (Module False a)
+             ) => [Glyph.Stmt a] -> m (Module Unlifted a)
 fromStmts =
-  liftM (flip Module NothingT) . maybe fromEmpty fromNonEmpty . nonEmpty
+  liftM mkModule .
+  maybe fromEmpty fromNonEmpty . nonEmpty
   where
     return = Monad.return
     (>>=) = (Monad.>>=)
 
+    mkModule init = Module (Object NothingL init NothingL)
+
     runReaderT' = flip runReaderT
     
-    fromEmpty = do
-      x <- freshIdent
-      return $ Fun x mempty (mkLast ReturnVoid) mempty (JustF mempty)
+    fromEmpty =
+      return $ Init (mkLast ReturnVoid) mempty (JustU mempty)
     
     fromNonEmpty stmts = do
-      x <- freshIdent
-      let params = mempty
-      runReaderT' r $ funM x params (toList stmts)
+      runReaderT' r $ mainM (toList stmts)
       where
         insnsM =
           liftM unW' .
           execWriterT .
           mapM_ tellStmt
+
+        mainM :: ( MonadError ContFlowException m'
+                 , MonadReader (R a) m'
+                 , UniqueMonad m'
+                 ) => [Glyph.Stmt a] -> m' (Init Unlifted a)
+        mainM stmts' = do
+          insns <- insnsM stmts'
+          let vars = varsQ stmts'
+          funs <- funsM stmts'
+          return $ Init insns vars (JustU funs)
 
         varsQ =
           everythingButFuns (<>) (mempty `mkQ` f)
@@ -84,12 +94,12 @@ fromStmts =
         funM :: ( MonadError ContFlowException m'
                 , MonadReader (R a) m'
                 , UniqueMonad m'
-                ) => Ident -> [Ident] -> [Glyph.Stmt a] -> m' (Fun False a)
+                ) => Ident -> [Ident] -> [Glyph.Stmt a] -> m' (Fun Unlifted a)
         funM x params stmts' = do
           insns <- insnsM stmts'
           let vars = varsQ stmts'
           funs <- funsM stmts'
-          return $ Fun x params insns vars (JustF funs)
+          return $ Fun x params insns vars (JustU funs)
 
         funsQ :: forall b m' .
                  Monad.Monad m' =>

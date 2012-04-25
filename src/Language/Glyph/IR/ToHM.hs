@@ -29,16 +29,18 @@ import Language.Glyph.Record hiding (Module, Symtab, insns, select)
 import qualified Language.Glyph.Record as Record
 import Language.Glyph.Unique ()
 
+import Prelude hiding (init)
+
 toHM :: ( Monoid a
         , Typeable a
         , Select CallSet IdentSet sym
         , Select Record.Symtab (Symtab sym) fields
-        , Select Record.Module (Module False a) fields
+        , Select Record.Module (Module Unlifted a) fields
         , UniqueMonad m
         ) => Record fields -> m (Exp a)
-toHM r = toExp (r#.symtab) fun
+toHM r = toExp (r#.symtab) init
   where
-    Module fun NothingT = r#.module'
+    Module (Object NothingL init NothingL) = r#.module'
 
 toList :: Graph n e x -> [SomeNode n]
 toList = foldGraphNodesR f []
@@ -53,25 +55,26 @@ toExp :: ( Monoid a
          , Typeable a
          , Select CallSet IdentSet sym
          , UniqueMonad m
-         ) => Symtab sym -> Fun False a -> m (Exp a)
-toExp m (Fun _x params (toList -> insns) vars (JustF funs)) = do
+         ) => Symtab sym -> Init Unlifted a -> m (Exp a)
+toExp m (Init (toList -> insns) vars (JustU funs)) = do
   cc <- freshIdent
   let r = initR (mconcatInsns insns) cc m
   runReaderT' r $ do
     x <- freshIdent
     absE x $
-      selectList x params $
       declareList vars $
       funsToExp funs $
       runCont $ callCC $
-        absE cc (insnsToExp insns)
+        absE cc (insnsToExp insns
+                 `then'`
+                 appE (varE cc) (litE VoidL))
 
 funToExp :: ( Monoid a
             , Typeable a
             , Select CallSet IdentSet sym
             , UniqueMonad m
-            ) => Fun False a -> T a sym m (Exp a)
-funToExp (Fun _x params (toList -> insns) vars (JustF funs)) =
+            ) => Fun Unlifted a -> T a sym m (Exp a)
+funToExp (Fun _x params (toList -> insns) vars (JustU funs)) =
   localA (mconcatInsns insns) $ do
     x <- freshIdent
     absE x $
@@ -86,7 +89,7 @@ funsToExp :: ( Monoid a
              , Typeable a
              , Select CallSet IdentSet sym
              , UniqueMonad m
-             ) => [Fun False a] -> T a sym m (Exp a) -> T a sym m (Exp a)
+             ) => [Fun Unlifted a] -> T a sym m (Exp a) -> T a sym m (Exp a)
 funsToExp funs e' = do
   scc <- liftM stronglyConnCompR . mapM mkNode $ funs
   localA (mconcatFuns funs) $ foldr' letE' scc e'
@@ -103,7 +106,7 @@ letE' :: ( Typeable a
          , Select CallSet IdentSet sym
          , UniqueMonad m
          ) =>
-         SCC (Fun False a, Ident, [Ident]) ->
+         SCC (Fun Unlifted a, Ident, [Ident]) ->
          T a sym m (Exp a) ->
          T a sym m (Exp a)
 letE' (AcyclicSCC (funToExp -> e, x, _)) e' =
@@ -121,10 +124,10 @@ letE' (CyclicSCC vertices) e' = do
     fst' (x, _, _) = x
     snd' (_, x, _) = x
 
-mconcatFuns :: Monoid a => [Fun False a] -> a
+mconcatFuns :: Monoid a => [Fun Unlifted a] -> a
 mconcatFuns = mconcat . map f
   where
-    f (Fun _x _params (toList -> insns) _vars (JustF funs)) =
+    f (Fun _x _params (toList -> insns) _vars (JustU funs)) =
       mconcatInsns insns <> mconcatFuns funs
 
 mconcatInsns :: Monoid a => [SomeInsn a] -> a
@@ -186,6 +189,8 @@ exprToExp = go
       varE x
     go (ApplyE x xs) =
       appE (varE x) (tupleE (map varE xs))
+    go (BindE x xs l) =
+      appE (bind (length xs) l) (tupleE (map varE (x:xs)))
     go (ApplyMethodE x method xs) =
       appE (accessE method (varE x)) (tupleE (map varE xs))
     go (AssignE x y) =
@@ -234,6 +239,9 @@ select i l = liftR0 $ HM.select i l
 
 accessE :: Monad m => Label -> T a sym m (Exp a) -> T a sym m (Exp a)
 accessE l = liftR1 $ HM.accessE l
+
+bind :: Monad m => Int -> Int -> T a sym m (Exp a)
+bind i l = liftR0 $ HM.bind i l
 
 undefined' :: Monad m => T a sym m (Exp a)
 undefined' = liftR0 HM.undefined'

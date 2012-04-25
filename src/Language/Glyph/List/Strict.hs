@@ -2,12 +2,16 @@
 module Language.Glyph.List.Strict
        ( List (..)
        , (!!)
+       , cons
+       , drop
        , foldM
        , fromList
        , length
        , replicate
        , replicateM
        , singleton
+       , splitAt
+       , take
        , zip
        ) where
 
@@ -21,7 +25,17 @@ import Data.Traversable
 
 import GHC.Exts
 
-import Prelude hiding ((!!), foldl, foldr, foldr1, length, replicate, sequence, zip)
+import Prelude hiding ((!!),
+                       drop,
+                       foldl,
+                       foldr,
+                       foldr1,
+                       length,
+                       replicate,
+                       sequence,
+                       splitAt,
+                       take,
+                       zip)
 
 data List a
   = Nil
@@ -89,6 +103,14 @@ xs !! (I# n0)
                       then y
                       else sub ys (n -# 1#)
 
+cons :: a -> List a -> List a
+cons = (:|)
+
+drop :: Int -> List a -> List a
+drop n xs | n <= 0 = xs
+drop _ Nil = Nil
+drop n (_ :| xs) = drop (n - 1) xs
+
 foldM :: Monad m => (a -> b -> m a) -> a -> List b -> m a
 foldM _ a Nil = return a
 foldM f a (x :| xs) = f a x >>= \ a' -> foldM f a' xs
@@ -116,6 +138,14 @@ replicateM n x = sequence (replicate n x)
 
 singleton :: a -> List a
 singleton x = x :| Nil
+
+splitAt :: Int -> List a -> (List a, List a)
+splitAt n xs = (take n xs, drop n xs)
+
+take :: Int -> List a -> List a
+take n _ | n <= 0 = Nil
+take _ Nil = Nil
+take n (x :| xs) = x :| take (n - 1) xs
 
 zip :: List a -> List b -> List (a, b)
 zip (a :| as) (b :| bs) = (a, b) :| zip as bs

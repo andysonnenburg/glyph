@@ -2,6 +2,7 @@ module Language.Glyph.Record
        ( module X
        ) where
 
+import Language.Glyph.Record.Allocation as X
 import Language.Glyph.Record.CallSet as X
 import Language.Glyph.Record.ExtraSet as X
 import Language.Glyph.Record.FreeVars as X

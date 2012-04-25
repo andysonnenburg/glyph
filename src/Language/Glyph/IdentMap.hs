@@ -1,5 +1,4 @@
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Glyph.IdentMap
        ( module X
        , IdentMap
@@ -10,14 +9,11 @@ module Language.Glyph.IdentMap
 
 import Data.Hashable
 import Data.HashMap.Lazy as X
-import Data.Semigroup
 
 import Language.Glyph.Ident
+import Language.Glyph.Map ()
 
 import Prelude hiding (lookup)
-
-instance (Eq k, Hashable k) => Semigroup (HashMap k v) where
-  (<>) = union
 
 intersectionWith :: ( Eq k
                     , Hashable k

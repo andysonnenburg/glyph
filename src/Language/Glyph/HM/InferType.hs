@@ -26,8 +26,6 @@ import Control.Monad.ST
 
 import Data.Foldable (foldr, forM_, toList)
 import Data.Hashable
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as Map
 import Data.List (partition)
 import Data.Maybe
 import Data.Semigroup
@@ -39,6 +37,8 @@ import Language.Glyph.HM.Syntax
 import Language.Glyph.Ident
 import Language.Glyph.List.Strict (List, (!!))
 import qualified Language.Glyph.List.Strict as List
+import Language.Glyph.Map (Map)
+import qualified Language.Glyph.Map as Map
 import Language.Glyph.Msg hiding (singleton)
 import qualified Language.Glyph.Msg as Msg
 import Language.Glyph.Set (Set, member)
@@ -54,8 +54,6 @@ import Text.PrettyPrint.Free
 import Prelude hiding ((!!), foldr, lookup)
 
 import Unsafe.Coerce as Unsafe (unsafeCoerce)
-
-type Map = HashMap
 
 inferType :: ( Pretty a
              , MonadError TypeException m
@@ -179,6 +177,13 @@ inferExp = go
     w (Select i l) = do
       alphas <- List.replicateM l fresh
       return $! Inferred mempty mempty (Tuple alphas :->: (alphas !! i))
+    w (MkRecord props) = do
+      (props', c) <- runWriterT $ forM props $ \ x -> do
+        sigma <- lift $ lift $ lookup x
+        (c, tau) <- instantiate sigma
+        tell $! c
+        return $! tau
+      return $! Inferred mempty c (Record props')
     w (Access l) = do
       a <- fresh
       b <- fresh

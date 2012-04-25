@@ -217,7 +217,7 @@ mapGraph' :: (a -> b) -> Graph (Insn a) e x -> Graph (Insn b) e x
 mapGraph' f = mapGraph (unwrapInsn . fmap f . WrapInsn)
 
 mapGraph'' :: forall a .
-              (Graph (Insn a) O C -> Graph (Insn a) O C) ->
+              (Insns a -> Insns a) ->
               Module Unlifted a ->
               Module Unlifted a
 mapGraph'' f = mapModule

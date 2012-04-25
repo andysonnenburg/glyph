@@ -34,11 +34,12 @@ import Control.Monad.Reader
 import Data.Data
 
 import Language.Glyph.Ident
+import Language.Glyph.Map (Map)
+import qualified Language.Glyph.Map as Map
 import Language.Glyph.Pretty
 import Language.Glyph.Syntax (Lit (..), prettyText)
 import Language.Glyph.Type as X (Label)
 import Language.Glyph.View
-
 
 class Pretty a => PrettyPrec a where
   prettyPrec :: Int -> a -> Doc e
@@ -50,7 +51,7 @@ prettyDefault = prettyPrec 0
 prettyParen :: Bool -> Doc e -> Doc e
 prettyParen b p = if b then parens p else p
 
-data Exp a = Exp a (ExpView a) deriving (Typeable, Data, Functor)
+data Exp a = Exp a (ExpView a) deriving (Typeable, Functor)
 
 instance Pretty (Exp a) where
   pretty = prettyDefault
@@ -71,6 +72,7 @@ data ExpView a
 
   | MkTuple Int
   | Select Int Int
+  | MkRecord (Map Label Ident)
   | Access Label
   | Bind Int Int
   | Undefined
@@ -79,7 +81,7 @@ data ExpView a
   | RunCont
   | Return
   | Then
-  | CallCC deriving (Typeable, Data, Functor)
+  | CallCC deriving (Typeable, Functor)
 
 instance Show (ExpView a) where
   show = showDefault
@@ -122,6 +124,10 @@ instance PrettyPrec (ExpView a) where
         text "mkTuple" <> char '_' <> pretty x
       go (Select i l) =
         text "select" <> char '_' <> pretty i <> char '_' <> pretty l
+      go (MkRecord xs) =
+        text "mkRecord" <> hcat (map prettyLabel' . Map.keys $ xs)
+        where
+          prettyLabel' l = char '_' <> prettyText l
       go (Access l) =
         char '.' <> prettyText l
       go (Bind i l) =

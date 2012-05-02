@@ -1,4 +1,7 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE
+    FlexibleInstances
+  , MultiParamTypeClasses
+  , UndecidableInstances #-}
 module Language.Glyph.Writer.Strict
        ( module X
        , WriterT
@@ -9,6 +12,7 @@ import Compiler.Hoopl
 import Control.Applicative
 import Control.Monad as X
 import Control.Monad.Fix as X
+import Control.Monad.Ref.Class
 import Control.Monad.Trans as X
 import Control.Monad.Writer.Class as X
 
@@ -62,6 +66,12 @@ instance (Monoid w, Monad m) => MonadWriter w (WriterT w m) where
   pass m = WriterT $ do
     Pair (a, f) w <- unWriterT m
     return $! Pair a (f w)
+
+instance (Monoid w, MonadRef r m) => MonadRef r (WriterT w m) where
+  newRef = lift . newRef
+  readRef = lift . readRef
+  writeRef r = lift . writeRef r
+  modifyRef r = lift . modifyRef r
 
 instance (Monoid w, UniqueMonad m) => UniqueMonad (WriterT w m) where
   freshUnique = lift freshUnique

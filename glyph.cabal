@@ -24,6 +24,7 @@ executable glyph
     syb,
     template-haskell,
     text,
+    transformers,
     hoopl,
     wl-pprint-extras,
     deepseq

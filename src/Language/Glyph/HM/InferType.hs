@@ -22,6 +22,7 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Monad.Error hiding (forM, forM_)
 import Control.Monad.Reader hiding (forM, forM_)
+import Control.Monad.Ref hiding (forM, forM_)
 import Control.Monad.ST
 
 import Data.Foldable (foldr, forM_, toList)
@@ -247,7 +248,6 @@ modify' f = do
   s <- get
   put $! f s
 
-type Normalize a s = ErrorT TypeException (ReaderT a (WriterT Msgs (ST s)))
 type Ref = STRef
 
 data Normalized = Normalized !(Constraint Normal) !Substitution
@@ -265,19 +265,13 @@ normalize = runNormalize
   where
     runNormalize d =
       run (normalizeM' d mempty)
-    normalizeM' :: Constraint Nonnormal ->
-                   Substitution ->
-                   Normalize a s Normalized
     normalizeM' d phi = do
       d' <- newRef d
       phi' <- newRef phi
       normalizeM d' phi'
-    normalizeM :: Ref s (Constraint Nonnormal) ->
-                  Ref s Substitution ->
-                  Normalize a s Normalized
     normalizeM d psi = do
       c <- newRef mempty
-      whileJust (uncons <$> readRef d) $ \ (p, d') -> do
+      whileJust (liftM uncons $ readRef d) $ \ (p, d') -> do
         writeRef d d'
         case p of
           tau := tau' -> do
@@ -322,7 +316,7 @@ normalize = runNormalize
             tellMissingLabel tau l
           tau@(Cont _) `Has` (l, _) ->
             tellMissingLabel tau l
-      Normalized <$> readRef c <*> readRef psi
+      liftM2 Normalized (readRef c) (readRef psi)
     (d `forAll` (a, l)) f =
       forRefM_ d $ \ p ->
         case p of
@@ -333,17 +327,8 @@ normalize = runNormalize
     forRefM_ ref f = do
       x <- readRef ref
       forM_ x f
-    run :: (forall s . Normalize a s Normalized) ->
-           m Normalized
-    run m = do
-      r <- ask
-      let (a, w) = runST (runWriterT (runReaderT (runErrorT m) r))
-      tell w
-      either throwError return a
-    newRef = lift . lift . lift . newSTRef
-    readRef = lift . lift . lift . readSTRef
-    modifyRef r = lift . lift . lift . modifySTRef r
-    writeRef r = lift . lift . lift . writeSTRef r
+    run :: (forall s . RefSupplyT s m Normalized) -> m Normalized
+    run m = runRefSupplyT m
     u = flip Set.insert
     (\\) = flip Set.delete
     uncons xs = go . toList $ xs

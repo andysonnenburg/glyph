@@ -11,6 +11,7 @@ executable glyph
   hs-source-dirs: src
   build-depends:
     base == 4.*,
+    ghc-prim,
     array,
     bytestring,
     cmdargs,

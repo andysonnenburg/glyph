@@ -13,8 +13,6 @@ module Data.WeakIntMap.Lazy
        , adjust
        , adjustWithKey
        , updateWithKey
-         
-       , touchKey
        ) where
 
 import Data.WeakIntMap.Base

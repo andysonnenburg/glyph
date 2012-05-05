@@ -65,8 +65,10 @@ inferType e = do
   (Inferred psi _c _tau, gamma) <- run $ inferExp e
   return $! psi $$ gamma
   where
-    run = flip runStateT initS . flip runReaderT mempty
+    run :: Monad m => (forall s . RefSupplyT s (ReaderT R (StateT S m)) a) -> m (a, S)           
+    run m = flip runStateT initS . flip runReaderT mempty $ runRefSupplyT m
 
+type R = TypeEnvironment
 type S = TypeEnvironment
 
 initS :: S
@@ -136,6 +138,7 @@ data Inferred = Inferred !Substitution !(Constraint Normal) !Type
 inferExp :: ( Pretty a
             , MonadError TypeException m
             , MonadReader TypeEnvironment m
+            , MonadRef r m
             , MonadState S m
             , MonadWriter Msgs m
             , UniqueMonad m
@@ -252,20 +255,20 @@ type Ref = STRef
 
 data Normalized = Normalized !(Constraint Normal) !Substitution
 
-normalize :: forall a m .
+normalize :: forall a r m .
              ( Pretty a
              , MonadError TypeException m
              , MonadReader a m
+             , MonadRef r m
              , MonadWriter Msgs m
              , UniqueMonad m
              ) =>
              Constraint Nonnormal ->
              m Normalized
-normalize = runNormalize
+normalize = normalize'
   where
-    runNormalize d =
-      run (normalizeM' d mempty)
-    normalizeM' d phi = do
+    normalize' d = do
+      let phi = mempty
       d' <- newRef d
       phi' <- newRef phi
       normalizeM d' phi'
@@ -327,8 +330,6 @@ normalize = runNormalize
     forRefM_ ref f = do
       x <- readRef ref
       forM_ x f
-    run :: (forall s . RefSupplyT s m Normalized) -> m Normalized
-    run m = runRefSupplyT m
     u = flip Set.insert
     (\\) = flip Set.delete
     uncons xs = go . toList $ xs

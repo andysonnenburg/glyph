@@ -1,8 +1,4 @@
-{-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL__
-{-# LANGUAGE MagicHash #-}
-#endif
-{-# OPTIONS_GHC -fglasgow-exts #-}
+{-# LANGUAGE CPP, MagicHash #-}
 module Data.WeakIntMap.Base
        ( WeakIntMap (..)
        , Key
@@ -17,8 +13,6 @@ module Data.WeakIntMap.Base
        , adjust
        , adjustWithKey
        , updateWithKey
-         
-       , touchKey
          
        , Mask
        , Prefix
@@ -43,19 +37,10 @@ import Control.Applicative hiding (empty)
 import Data.Bits
 import Data.Maybe
 
-#if __GLASGOW_HASKELL__
-import GHC.Base (IO (..))
 import GHC.Exts (Word (..), Int (..))
-import GHC.Prim (touch#, uncheckedShiftL#, uncheckedShiftRL#)
-#else
-import Data.Word
-#endif
+import GHC.Prim (uncheckedShiftL#, uncheckedShiftRL#)
 
 import System.Mem.Weak
-
-import System.IO
--- import Debug.Trace
-trace x y = y
 
 data WeakIntMap a
   = Bin
@@ -66,16 +51,13 @@ data WeakIntMap a
   | Tip !(Weak (Tip a))
   | Nil
 
-data Tip a = PairK {-# UNPACK #-} !Key a
+data Tip a = PairK Key a
 type Prefix = Int
 type Mask = Int
 type Key = Int
 
 find :: Key -> WeakIntMap a -> IO a
-find k t = k `seq` do
-  x <- go t
-  touchKey k
-  return x
+find k = k `seq` go
   where
     go (Bin p m l r) | noMatch k p m = notFound
                      | zero k m = go l
@@ -83,7 +65,7 @@ find k t = k `seq` do
     go (Tip tip) = withTip tip $ \ m ->
       case m of
         Just (PairK kx x) | k == kx -> pure x
-        _ -> error $ "find: " ++ show k ++ " collected"
+        _ -> error $ "WeakIntMap.find: " ++ show k ++ " collected"
     go Nil = notFound
     notFound = error ("WeakIntMap.find: key " ++ show k ++
                       " is not an element of the map")
@@ -94,26 +76,23 @@ empty = Nil
 
 singleton :: Key -> a -> IO (WeakIntMap a)
 singleton k x = Tip <$> mkTip k x
-{-# INLINE singleton #-}
 
 insert :: Key -> a -> WeakIntMap a -> IO (WeakIntMap a)
-insert k x t = k `seq` do
-  t' <- go
-  touchKey k
-  return t'
+{-# NOINLINE insert #-}
+insert k x t = k `seq` mkTip k x >>= go . Tip
   where
-    go = case t of
+    go tip = case t of
       Bin p m l r
-        | noMatch k p m -> join k <$> (Tip <$> mkTip k x) <*> pure p <*> expunge t
+        | noMatch k p m -> join k <$> pure tip <*> pure p <*> expunge t
         | zero k m -> Bin p m <$> insert k x l <*> expunge r
         | otherwise -> Bin p m <$> expunge l <*> insert k x r
-      Tip tip -> withTip tip $ \ m ->
-        case m of
+      Tip tip' -> withTip tip' $ \ m ->
+        pure $ case m of
           Just (PairK ky _)
-            | k == ky -> Tip <$> mkTip k x
-            | otherwise -> join k <$> (Tip <$> mkTip k x) <*> pure ky <*> pure t
-          _ -> ("insert: " ++ show k ++ " collected") `trace` (Tip <$> mkTip k x)
-      Nil -> Tip <$> mkTip k x
+            | k == ky -> tip
+            | otherwise -> join k tip ky t
+          _ -> tip
+      Nil -> pure tip
 
 adjust ::  (a -> a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
 adjust f k m = adjustWithKey (\ _ x -> f x) k m
@@ -122,26 +101,22 @@ adjustWithKey ::  (Key -> a -> a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
 adjustWithKey f = updateWithKey (\ k' x -> Just (f k' x))
 
 updateWithKey :: (Key -> a -> Maybe a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
-updateWithKey f k t = k `seq` do
-  t' <- go
-  touchKey k
-  return t'
-  where
-    go = case t of
-      Bin p m l r
-        | noMatch k p m -> pure t
-        | zero k m -> bin p m <$> updateWithKey f k l <*> expunge r
-        | otherwise -> bin p m <$> expunge l <*> updateWithKey f k r
-      Tip tip -> withTip tip $ \ m ->
-        case m of
-          Just (PairK ky y)
-            | k == ky ->
-              case f k y of
-                Just y' -> Tip <$> mkTip ky y'
-                Nothing -> pure Nil
-            | otherwise -> pure t
-          Nothing -> ("updateWithKey: " ++ show k ++ " collected") `trace` pure Nil
-      Nil -> pure Nil
+updateWithKey f k t = k `seq`
+  case t of
+    Bin p m l r
+      | noMatch k p m -> pure t
+      | zero k m -> bin p m <$> updateWithKey f k l <*> expunge r
+      | otherwise -> bin p m <$> expunge l <*> updateWithKey f k r
+    Tip tip -> withTip tip $ \ m ->
+      case m of
+        Just (PairK ky y)
+          | k == ky ->
+            case f k y of
+              Just y' -> Tip <$> mkTip ky y'
+              Nothing -> pure Nil
+          | otherwise -> pure t
+        Nothing -> pure Nil
+    Nil -> pure Nil
 
 expunge :: WeakIntMap a -> IO (WeakIntMap a)
 expunge t = fromMaybe t <$> expunge' t
@@ -163,10 +138,8 @@ expunge' t =
     Nil -> pure Nothing
 
 mkTip :: Key -> a -> IO (Weak (Tip a))
-mkTip k x = k `seq` do
-  tip <- mkWeak k (PairK k x) (Just (hPutStrLn stderr $ "mkTip: " ++ show k ++ " collected"))
-  touchKey k
-  return tip
+{-# NOINLINE mkTip #-}
+mkTip k x = k `seq` mkWeak k (PairK k x) Nothing
 
 withTip :: Weak (Tip a) -> (Maybe (Tip a) -> IO b) -> IO b
 withTip tip f = deRefWeak tip >>= f
@@ -213,18 +186,11 @@ highestBitMask x0
       x2 -> case (x2 .|. shiftRL x2 4) of
        x3 -> case (x3 .|. shiftRL x3 8) of
         x4 -> case (x4 .|. shiftRL x4 16) of
-#if !(defined(__GLASGOW_HASKELL__) && WORD_SIZE_IN_BITS==32)
+#if WORD_SIZE_IN_BITS==32
          x5 -> case (x5 .|. shiftRL x5 32) of   -- for 64 bit platforms
 #endif
           x6 -> (x6 `xor` (shiftRL x6 1))
 {-# INLINE highestBitMask #-}
-
-touchKey :: Key -> IO ()
-#if __GLASGOW_HASKELL__
-touchKey k = IO $ \ s -> case touch# k s of s' -> (# s', () #)
-#else
-touchKey _ = pure ()
-#endif
 
 type Nat = Word
 
@@ -237,15 +203,7 @@ intFromNat = fromIntegral
 {-# INLINE intFromNat #-}
 
 shiftRL, shiftLL :: Nat -> Key -> Nat
-#if __GLASGOW_HASKELL__
-{--------------------------------------------------------------------
-  GHC: use unboxing to get @shiftRL@ inlined.
---------------------------------------------------------------------}
 shiftRL (W# x) (I# i) = W# (uncheckedShiftRL# x i)
 shiftLL (W# x) (I# i) = W# (uncheckedShiftL#  x i)
-#else
-shiftRL x i   = shiftR x i
-shiftLL x i   = shiftL x i
-#endif
 {-# INLINE shiftRL #-}
 {-# INLINE shiftLL #-}

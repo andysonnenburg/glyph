@@ -19,6 +19,7 @@ import Control.Applicative
 import Control.Monad.Error
 import Control.Monad.Identity
 import Control.Monad.Reader
+import Control.Monad.Ref
 import Control.Monad.State.Strict
 import Control.Monad.Writer.Strict
 
@@ -30,6 +31,9 @@ instance (Error e, UniqueMonad m) => UniqueMonad (ErrorT e m) where
   freshUnique = lift freshUnique
 
 instance UniqueMonad m => UniqueMonad (ReaderT r m) where
+  freshUnique = lift freshUnique
+
+instance UniqueMonad m => UniqueMonad (RefSupplyT s m) where
   freshUnique = lift freshUnique
 
 instance UniqueMonad m => UniqueMonad (StateT s m) where

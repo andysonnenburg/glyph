@@ -17,9 +17,12 @@ module Control.Monad.Trans.Ref
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Error.Class
 import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
+import Control.Monad.State.Class hiding (get, modify, put)
+import qualified Control.Monad.State.Class as State
 import Control.Monad.Trans.Class
 import Control.Monad.Writer.Class
 
@@ -29,7 +32,7 @@ import qualified Data.WeakIntMap.Lazy as IntMap
 
 import GHC.Exts (Any)
 
-import System.IO.Unsafe (unsafeDupablePerformIO, unsafePerformIO)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Unsafe.Coerce as Unsafe (unsafeCoerce)
 
@@ -90,10 +93,21 @@ instance MonadTrans (RefSupplyT s) where
 instance MonadIO m => MonadIO (RefSupplyT s m) where
   liftIO = lift . liftIO
 
+instance MonadError e m => MonadError e (RefSupplyT s m)
+
 instance MonadReader r m => MonadReader r (RefSupplyT s m) where
   ask = lift ask
-  local = undefined
+  local = mapRefSupplyT . local
   reader = lift . reader
+
+mapRefSupplyT :: (m (PairS a) -> n (PairS b)) ->
+                 RefSupplyT s m a -> RefSupplyT s n b
+mapRefSupplyT f m = RefSupplyT $ f . unRefSupplyT m
+
+instance MonadState s' m => MonadState s' (RefSupplyT s m) where
+  get = lift State.get
+  put = lift . State.put
+  state = lift . state
 
 instance MonadWriter w m => MonadWriter w (RefSupplyT s m) where
   writer = lift . writer
@@ -113,38 +127,27 @@ newtype Value = Value { unValue :: Any }
 initS :: S
 initS = S minBound IntMap.empty
 
-data Ref s a = Ref Key deriving Show
+newtype Ref s a = Ref Key deriving Show
 
 newRef :: Monad m => a -> RefSupplyT s m (Ref s a)
 newRef v = do
   S n m <- get
-  put $! S (n + 1) $ unsafePerformIO $ do
-    m' <- IntMap.insert n (toValue v) m
-    IntMap.touchKey n
-    return m'
+  put $! S (n + 1) $ unsafeDupablePerformIO $ IntMap.insert n (toValue v) m
   return $! Ref n
 
 readRef :: Monad m => Ref s a -> RefSupplyT s m a
 readRef (Ref k) = do
   S _ m <- get
-  return $ fromValue $ unsafePerformIO $ do
-    x <- IntMap.find k m
-    IntMap.touchKey k
-    return x
+  return $ fromValue $ unsafeDupablePerformIO $ IntMap.find k m
+
 writeRef :: Monad m => Ref s a -> a -> RefSupplyT s m ()
 writeRef (Ref k) v = do
   modify $ \ (S n m) ->
-    S n $ unsafePerformIO $ do
-      m' <- IntMap.insert k (toValue v) m
-      IntMap.touchKey k
-      return m'
+    S n $ unsafeDupablePerformIO $ IntMap.insert k (toValue v) m
 
 modifyRef :: Monad m => Ref s a -> (a -> a) -> RefSupplyT s m ()
 modifyRef (Ref k) f = do
-  modify $ \ (S n m) -> S n $ unsafePerformIO $ do
-    m' <- IntMap.adjust f' k m
-    IntMap.touchKey k
-    return m'
+  modify $ \ (S n m) -> S n $ unsafeDupablePerformIO $ IntMap.adjust f' k m
   where
     f' = toValue . f . fromValue
 

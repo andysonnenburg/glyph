@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, MagicHash #-}
+{-# LANGUAGE CPP, MagicHash, UnboxedTuples #-}
 module Data.WeakIntMap.Base
        ( WeakIntMap (..)
        , Key
@@ -35,10 +35,9 @@ module Data.WeakIntMap.Base
 import Control.Applicative hiding (empty)
 
 import Data.Bits
-import Data.Maybe
 
-import GHC.Exts (Word (..), Int (..))
-import GHC.Prim (uncheckedShiftL#, uncheckedShiftRL#)
+import GHC.Exts (Word (..), Int (..), touch#, uncheckedShiftL#, uncheckedShiftRL#)
+import GHC.Types (IO (..))
 
 import System.Mem.Weak
 
@@ -57,42 +56,51 @@ type Mask = Int
 type Key = Int
 
 find :: Key -> WeakIntMap a -> IO a
-find k = k `seq` go
+find = \ k -> withKey k . flip go
   where
-    go (Bin p m l r) | noMatch k p m = notFound
-                     | zero k m = go l
-                     | otherwise = go r
-    go (Tip tip) = withTip tip $ \ m ->
+    go k (Bin p m l r) | noMatch k p m = notFound k
+                       | zero k m = go k l
+                       | otherwise = go k r
+    go k (Tip tip) = withTip tip $ \ m ->
       case m of
         Just (PairK kx x) | k == kx -> pure x
         _ -> error $ "WeakIntMap.find: " ++ show k ++ " collected"
-    go Nil = notFound
-    notFound = error ("WeakIntMap.find: key " ++ show k ++
-                      " is not an element of the map")
+    go k Nil = notFound k
+    notFound k = error ("WeakIntMap.find: key " ++ show k ++
+                        " is not an element of the map")
+
+withKey :: Key -> (Key -> IO a) -> IO a
+withKey k f = k `seq` do
+  a <- f k
+  touchKey k
+  return a
+
+touchKey :: Key -> IO ()
+touchKey k = IO $ \ s -> case touch# k s of s' -> (# s', () #)
 
 empty :: WeakIntMap a
 empty = Nil
 {-# INLINE empty #-}
 
 singleton :: Key -> a -> IO (WeakIntMap a)
-singleton k x = Tip <$> mkTip k x
+singleton k x = withNewTip k x (\ _k tip -> pure $! Tip tip)
 
 insert :: Key -> a -> WeakIntMap a -> IO (WeakIntMap a)
-{-# NOINLINE insert #-}
-insert k x t = k `seq` mkTip k x >>= go . Tip
+insert = \ k x t ->  withNewTip k x (\ k' tip -> go k' tip t)
   where
-    go tip = case t of
-      Bin p m l r
-        | noMatch k p m -> join k <$> pure tip <*> pure p <*> expunge t
-        | zero k m -> Bin p m <$> insert k x l <*> expunge r
-        | otherwise -> Bin p m <$> expunge l <*> insert k x r
-      Tip tip' -> withTip tip' $ \ m ->
-        pure $ case m of
-          Just (PairK ky _)
-            | k == ky -> tip
-            | otherwise -> join k tip ky t
-          _ -> tip
-      Nil -> pure tip
+    go k tip t =
+      case t of
+        Bin p m l r
+          | noMatch k p m -> join k (Tip tip) p <$> expunge t
+          | zero k m -> Bin p m <$> go k tip l <*> expunge r
+          | otherwise -> Bin p m <$> expunge l <*> go k tip r
+        Tip tip' -> withTip tip' $ \ m ->
+          pure $! case m of
+            Just (PairK ky _)
+              | k == ky -> Tip tip
+              | otherwise -> join k (Tip tip) ky t
+            _ -> Tip tip
+        Nil -> pure $! Tip tip
 
 adjust ::  (a -> a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
 adjust f k m = adjustWithKey (\ _ x -> f x) k m
@@ -107,39 +115,55 @@ updateWithKey f k t = k `seq`
       | noMatch k p m -> pure t
       | zero k m -> bin p m <$> updateWithKey f k l <*> expunge r
       | otherwise -> bin p m <$> expunge l <*> updateWithKey f k r
-    Tip tip -> withTip tip $ \ m ->
+    Tip w -> withTip w $ \ m ->
       case m of
         Just (PairK ky y)
           | k == ky ->
             case f k y of
-              Just y' -> Tip <$> mkTip ky y'
+              Just y' -> withNewTip ky y' (\ _ky tip -> pure $! Tip tip)
               Nothing -> pure Nil
           | otherwise -> pure t
         Nothing -> pure Nil
     Nil -> pure Nil
 
 expunge :: WeakIntMap a -> IO (WeakIntMap a)
-expunge t = fromMaybe t <$> expunge' t
+expunge t = fromExpunged t <$> expunge' t
 {-# INLINE expunge #-}
 
-expunge' :: WeakIntMap a -> IO (Maybe (WeakIntMap a))
+expunge' :: WeakIntMap a -> IO (Expunged a)
 expunge' t =
   case t of
     Bin p m l r -> do
       l' <- expunge' l
       r' <- expunge' r
-      pure $! if isJust l' || isJust r'
-              then Just $! Bin p m (fromMaybe l l') (fromMaybe r r')
-              else Nothing
+      pure $! if wasChanged l' || wasChanged r'
+              then Changed $ Bin p m (fromExpunged l l') (fromExpunged r r')
+              else Unchanged
     Tip tip -> withTip tip $ \ m ->
       case m of
-        Just _ -> pure Nothing
-        Nothing -> pure $ Just Nil
-    Nil -> pure Nothing
+        Just _ -> pure Unchanged
+        Nothing -> pure $ Changed Nil
+    Nil -> pure Unchanged
 
-mkTip :: Key -> a -> IO (Weak (Tip a))
-{-# NOINLINE mkTip #-}
-mkTip k x = k `seq` mkWeak k (PairK k x) Nothing
+wasChanged :: Expunged a -> Bool
+wasChanged x =
+  case x of
+    Unchanged -> False
+    Changed _ -> True
+
+fromExpunged :: WeakIntMap a -> Expunged a -> WeakIntMap a
+fromExpunged t x =
+  case x of
+    Unchanged -> t
+    Changed t' -> t'
+
+data Expunged a
+  = Unchanged
+  | Changed !(WeakIntMap a)
+
+withNewTip :: Key -> a -> (Key -> Weak (Tip a) -> IO b) -> IO b
+withNewTip k x f = k `seq` mkWeak k (PairK k x) Nothing >>= f k
+{-# NOINLINE withNewTip #-}
 
 withTip :: Weak (Tip a) -> (Maybe (Tip a) -> IO b) -> IO b
 withTip tip f = deRefWeak tip >>= f

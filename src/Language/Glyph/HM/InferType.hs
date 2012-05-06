@@ -17,20 +17,17 @@ module Language.Glyph.HM.InferType
        , inferType
        ) where
 
-import Control.Applicative
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad.Error hiding (forM, forM_)
 import Control.Monad.Reader hiding (forM, forM_)
 import Control.Monad.Ref hiding (forM, forM_)
-import Control.Monad.ST
 
 import Data.Foldable (foldr, forM_, toList)
 import Data.Hashable
 import Data.List (partition)
 import Data.Maybe
 import Data.Semigroup
-import Data.STRef
 import Data.Traversable (forM)
 import Data.Typeable
 
@@ -250,8 +247,6 @@ modify' :: MonadState s m => (s -> s) -> m ()
 modify' f = do
   s <- get
   put $! f s
-
-type Ref = STRef
 
 data Normalized = Normalized !(Constraint Normal) !Substitution
 

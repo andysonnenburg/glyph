@@ -27,8 +27,8 @@ import Control.Monad.Trans.Class
 import Control.Monad.Writer.Class
 
 import Data.Functor.Identity
-import Data.WeakIntMap.Lazy (WeakIntMap, Key)
-import qualified Data.WeakIntMap.Lazy as IntMap
+import Data.WeakIntMap.Strict (WeakIntMap, Key)
+import qualified Data.WeakIntMap.Strict as IntMap
 
 import GHC.Exts (Any)
 

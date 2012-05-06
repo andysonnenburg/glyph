@@ -14,9 +14,14 @@ module Data.WeakIntMap.Base
        , adjustWithKey
        , updateWithKey
          
+       , Tip (..)
        , Mask
        , Prefix
        , Nat
+         
+       , withNewTip
+       , withTip
+       , expunge
          
        , natFromInt
        , intFromNat
@@ -64,7 +69,7 @@ find = \ k -> withKey k . flip go
     go k (Tip tip) = withTip tip $ \ m ->
       case m of
         Just (PairK kx x) | k == kx -> pure x
-        _ -> error $ "WeakIntMap.find: " ++ show k ++ " collected"
+        Nothing -> error $ "WeakIntMap.find: " ++ show k ++ " collected"
     go k Nil = notFound k
     notFound k = error ("WeakIntMap.find: key " ++ show k ++
                         " is not an element of the map")
@@ -84,6 +89,7 @@ empty = Nil
 
 singleton :: Key -> a -> IO (WeakIntMap a)
 singleton k x = withNewTip k x (\ _k tip -> pure $! Tip tip)
+{-# INLINE singleton #-}
 
 insert :: Key -> a -> WeakIntMap a -> IO (WeakIntMap a)
 insert = \ k x t ->  withNewTip k x (\ k' tip -> go k' tip t)
@@ -99,7 +105,7 @@ insert = \ k x t ->  withNewTip k x (\ k' tip -> go k' tip t)
             Just (PairK ky _)
               | k == ky -> Tip tip
               | otherwise -> join k (Tip tip) ky t
-            _ -> Tip tip
+            Nothing -> Tip tip
         Nil -> pure $! Tip tip
 
 adjust ::  (a -> a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
@@ -113,8 +119,8 @@ updateWithKey f k t = k `seq`
   case t of
     Bin p m l r
       | noMatch k p m -> pure t
-      | zero k m -> bin p m <$> updateWithKey f k l <*> expunge r
-      | otherwise -> bin p m <$> expunge l <*> updateWithKey f k r
+      | zero k m -> bin p m <$> updateWithKey f k l <*> pure r
+      | otherwise -> bin p m l <$> updateWithKey f k r
     Tip w -> withTip w $ \ m ->
       case m of
         Just (PairK ky y)
@@ -163,7 +169,6 @@ data Expunged a
 
 withNewTip :: Key -> a -> (Key -> Weak (Tip a) -> IO b) -> IO b
 withNewTip k x f = k `seq` mkWeak k (PairK k x) Nothing >>= f k
-{-# NOINLINE withNewTip #-}
 
 withTip :: Weak (Tip a) -> (Maybe (Tip a) -> IO b) -> IO b
 withTip tip f = deRefWeak tip >>= f

@@ -4,7 +4,6 @@ module Data.WeakIntMap.Lazy
        
        , find
          
-        
        , empty
        , singleton
          

@@ -69,7 +69,7 @@ find = \ k -> withKey k . flip go
     go k (Tip tip) = withTip tip $ \ m ->
       case m of
         Just (PairK kx x) | k == kx -> pure x
-        Nothing -> error $ "WeakIntMap.find: " ++ show k ++ " collected"
+        _ -> error $ "WeakIntMap.find: " ++ show k ++ " collected"
     go k Nil = notFound k
     notFound k = error ("WeakIntMap.find: key " ++ show k ++
                         " is not an element of the map")

@@ -15,6 +15,7 @@ module Data.WeakIntMap.Strict
        ) where
 
 import Control.Applicative hiding (empty)
+import Control.Monad.Weak
 
 import Data.WeakIntMap.Base hiding (singleton,
                                     insert,
@@ -22,11 +23,11 @@ import Data.WeakIntMap.Base hiding (singleton,
                                     adjustWithKey,
                                     updateWithKey)
 
-singleton :: Key -> a -> IO (WeakIntMap a)
+singleton :: Key -> a -> WeakM (WeakIntMap a)
 singleton k x = x `seq` withNewTip k x (\ _k tip -> pure $! Tip tip)
 {-# INLINE singleton #-}
 
-insert :: Key -> a -> WeakIntMap a -> IO (WeakIntMap a)
+insert :: Key -> a -> WeakIntMap a -> WeakM (WeakIntMap a)
 insert = \ k x t -> k `seq` x `seq` withNewTip k x (\ k' tip -> go k' tip t)
   where
     go k tip t =
@@ -43,13 +44,13 @@ insert = \ k x t -> k `seq` x `seq` withNewTip k x (\ k' tip -> go k' tip t)
             Nothing -> Tip tip
         Nil -> pure $! Tip tip
 
-adjust ::  (a -> a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
-adjust f k m = adjustWithKey (\ _ x -> f x) k m
+adjust ::  (a -> a) -> Key -> WeakIntMap a -> WeakM (WeakIntMap a)
+adjust f = adjustWithKey (\ _ x -> f x)
 
-adjustWithKey ::  (Key -> a -> a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
+adjustWithKey ::  (Key -> a -> a) -> Key -> WeakIntMap a -> WeakM (WeakIntMap a)
 adjustWithKey f = updateWithKey (\ k' x -> Just (f k' x))
 
-updateWithKey :: (Key -> a -> Maybe a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
+updateWithKey :: (Key -> a -> Maybe a) -> Key -> WeakIntMap a -> WeakM (WeakIntMap a)
 updateWithKey f k t = k `seq`
   case t of
     Bin p m l r

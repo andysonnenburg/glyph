@@ -24,6 +24,7 @@ import Control.Monad.Reader.Class
 import Control.Monad.State.Class hiding (get, modify, put)
 import qualified Control.Monad.State.Class as State
 import Control.Monad.Trans.Class
+import Control.Monad.Weak
 import Control.Monad.Writer.Class
 
 import Data.Functor.Identity
@@ -31,8 +32,6 @@ import Data.WeakIntMap.Strict (WeakIntMap, Key)
 import qualified Data.WeakIntMap.Strict as IntMap
 
 import GHC.Exts (Any)
-
-import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Unsafe.Coerce as Unsafe (unsafeCoerce)
 
@@ -93,7 +92,10 @@ instance MonadTrans (RefSupplyT s) where
 instance MonadIO m => MonadIO (RefSupplyT s m) where
   liftIO = lift . liftIO
 
-instance MonadError e m => MonadError e (RefSupplyT s m)
+instance MonadError e m => MonadError e (RefSupplyT s m) where
+  throwError = lift . throwError
+  catchError m h =
+    RefSupplyT $ \ s -> unRefSupplyT m s `catchError` \ e -> unRefSupplyT (h e) s
 
 instance MonadReader r m => MonadReader r (RefSupplyT s m) where
   ask = lift ask
@@ -132,22 +134,22 @@ newtype Ref s a = Ref Key deriving Show
 newRef :: Monad m => a -> RefSupplyT s m (Ref s a)
 newRef v = do
   S n m <- get
-  put $! S (n + 1) $ unsafeDupablePerformIO $ IntMap.insert n (toValue v) m
+  put $! S (n + 1) $ unsafeRunWeakM $ IntMap.insert n (toValue v) m
   return $! Ref n
 
 readRef :: Monad m => Ref s a -> RefSupplyT s m a
 readRef (Ref k) = do
   S _ m <- get
-  return $ fromValue $ unsafeDupablePerformIO $ IntMap.find k m
+  return $ fromValue $ unsafeRunWeakM $ IntMap.find k m
 
 writeRef :: Monad m => Ref s a -> a -> RefSupplyT s m ()
-writeRef (Ref k) v = do
+writeRef (Ref k) v =
   modify $ \ (S n m) ->
-    S n $ unsafeDupablePerformIO $ IntMap.insert k (toValue v) m
+    S n $ unsafeRunWeakM $ IntMap.insert k (toValue v) m
 
 modifyRef :: Monad m => Ref s a -> (a -> a) -> RefSupplyT s m ()
-modifyRef (Ref k) f = do
-  modify $ \ (S n m) -> S n $ unsafeDupablePerformIO $ IntMap.adjust f' k m
+modifyRef (Ref k) f =
+  modify $ \ (S n m) -> S n $ unsafeRunWeakM $ IntMap.adjust f' k m
   where
     f' = toValue . f . fromValue
 

@@ -38,13 +38,11 @@ module Data.WeakIntMap.Base
        ) where
 
 import Control.Applicative hiding (empty)
+import Control.Monad.Weak
 
 import Data.Bits
 
-import GHC.Exts (Word (..), Int (..), touch#, uncheckedShiftL#, uncheckedShiftRL#)
-import GHC.Types (IO (..))
-
-import System.Mem.Weak
+import GHC.Exts (Word (..), Int (..), uncheckedShiftL#, uncheckedShiftRL#)
 
 data WeakIntMap a
   = Bin
@@ -60,7 +58,7 @@ type Prefix = Int
 type Mask = Int
 type Key = Int
 
-find :: Key -> WeakIntMap a -> IO a
+find :: Key -> WeakIntMap a -> WeakM a
 find = \ k -> withKey k . flip go
   where
     go k (Bin p m l r) | noMatch k p m = notFound k
@@ -74,24 +72,24 @@ find = \ k -> withKey k . flip go
     notFound k = error ("WeakIntMap.find: key " ++ show k ++
                         " is not an element of the map")
 
-withKey :: Key -> (Key -> IO a) -> IO a
+withKey :: Key -> (Key -> WeakM a) -> WeakM a
 withKey k f = k `seq` do
   a <- f k
   touchKey k
   return a
 
-touchKey :: Key -> IO ()
-touchKey k = IO $ \ s -> case touch# k s of s' -> (# s', () #)
+touchKey :: Key -> WeakM ()
+touchKey = touch
 
 empty :: WeakIntMap a
 empty = Nil
 {-# INLINE empty #-}
 
-singleton :: Key -> a -> IO (WeakIntMap a)
+singleton :: Key -> a -> WeakM (WeakIntMap a)
 singleton k x = withNewTip k x (\ _k tip -> pure $! Tip tip)
 {-# INLINE singleton #-}
 
-insert :: Key -> a -> WeakIntMap a -> IO (WeakIntMap a)
+insert :: Key -> a -> WeakIntMap a -> WeakM (WeakIntMap a)
 insert = \ k x t ->  withNewTip k x (\ k' tip -> go k' tip t)
   where
     go k tip t =
@@ -108,13 +106,13 @@ insert = \ k x t ->  withNewTip k x (\ k' tip -> go k' tip t)
             Nothing -> Tip tip
         Nil -> pure $! Tip tip
 
-adjust ::  (a -> a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
-adjust f k m = adjustWithKey (\ _ x -> f x) k m
+adjust ::  (a -> a) -> Key -> WeakIntMap a -> WeakM (WeakIntMap a)
+adjust f = adjustWithKey (\ _ x -> f x)
 
-adjustWithKey ::  (Key -> a -> a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
+adjustWithKey ::  (Key -> a -> a) -> Key -> WeakIntMap a -> WeakM (WeakIntMap a)
 adjustWithKey f = updateWithKey (\ k' x -> Just (f k' x))
 
-updateWithKey :: (Key -> a -> Maybe a) -> Key -> WeakIntMap a -> IO (WeakIntMap a)
+updateWithKey :: (Key -> a -> Maybe a) -> Key -> WeakIntMap a -> WeakM (WeakIntMap a)
 updateWithKey f k t = k `seq`
   case t of
     Bin p m l r
@@ -132,11 +130,11 @@ updateWithKey f k t = k `seq`
         Nothing -> pure Nil
     Nil -> pure Nil
 
-expunge :: WeakIntMap a -> IO (WeakIntMap a)
+expunge :: WeakIntMap a -> WeakM (WeakIntMap a)
 expunge t = fromExpunged t <$> expunge' t
 {-# INLINE expunge #-}
 
-expunge' :: WeakIntMap a -> IO (Expunged a)
+expunge' :: WeakIntMap a -> WeakM (Expunged a)
 expunge' t =
   case t of
     Bin p m l r -> do
@@ -167,10 +165,10 @@ data Expunged a
   = Unchanged
   | Changed !(WeakIntMap a)
 
-withNewTip :: Key -> a -> (Key -> Weak (Tip a) -> IO b) -> IO b
-withNewTip k x f = k `seq` mkWeak k (PairK k x) Nothing >>= f k
+withNewTip :: Key -> a -> (Key -> Weak (Tip a) -> WeakM b) -> WeakM b
+withNewTip k x f = k `seq` mkWeak k (PairK k x) >>= f k
 
-withTip :: Weak (Tip a) -> (Maybe (Tip a) -> IO b) -> IO b
+withTip :: Weak (Tip a) -> (Maybe (Tip a) -> WeakM b) -> WeakM b
 withTip tip f = deRefWeak tip >>= f
 
 join :: Prefix -> WeakIntMap a -> Prefix -> WeakIntMap a -> WeakIntMap a

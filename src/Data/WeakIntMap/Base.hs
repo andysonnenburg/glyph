@@ -53,7 +53,7 @@ data WeakIntMap a
   | Tip !(Weak (Tip a))
   | Nil
 
-data Tip a = PairK Key a
+data Tip a = PairK {-# NOUNPACK #-} !Key a
 type Prefix = Int
 type Mask = Int
 type Key = Int
@@ -67,10 +67,11 @@ find = \ k -> withKey k . flip go
     go k (Tip tip) = withTip tip $ \ m ->
       case m of
         Just (PairK kx x) | k == kx -> pure x
-        _ -> error $ "WeakIntMap.find: " ++ show k ++ " collected"
+        _ -> error $ "WeakIntMap.find: key " ++ show k ++ " collected"
     go k Nil = notFound k
     notFound k = error ("WeakIntMap.find: key " ++ show k ++
                         " is not an element of the map")
+{-# NOINLINE find #-}
 
 withKey :: Key -> (Key -> WeakM a) -> WeakM a
 withKey k f = k `seq` do
@@ -105,6 +106,7 @@ insert = \ k x t ->  withNewTip k x (\ k' tip -> go k' tip t)
               | otherwise -> join k (Tip tip) ky t
             Nothing -> Tip tip
         Nil -> pure $! Tip tip
+{-# NOINLINE insert #-}
 
 adjust ::  (a -> a) -> Key -> WeakIntMap a -> WeakM (WeakIntMap a)
 adjust f = adjustWithKey (\ _ x -> f x)
